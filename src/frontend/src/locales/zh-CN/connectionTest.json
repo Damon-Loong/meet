@@ -1,0 +1,56 @@
+{
+  "title": "测试您的配置",
+  "runTest": "运行测试",
+  "runAgain": "再次运行",
+  "cancel": "取消",
+  "detailsFor": "{{step}} 的详细信息",
+  "downloadReport": "下载报告",
+  "homeLink": "测试您的配置",
+  "progress": "{{done}}/{{total}}",
+  "progressLabel": "连接测试进度",
+  "groups": {
+    "local": "浏览器和设备",
+    "network": "服务器连接"
+  },
+  "steps": {
+    "browser": "浏览器",
+    "microphone": "麦克风",
+    "camera": "摄像头",
+    "devices": "媒体设备",
+    "websocket": "WebSocket",
+    "webrtc": "WebRTC",
+    "turn": "TURN 中继",
+    "reconnect": "重新连接",
+    "selectedCandidate": "已选网络路径",
+    "publishAudio": "发送音频",
+    "publishVideo": "发送视频"
+  },
+  "status": {
+    "pending": "待开始",
+    "running": "运行中…",
+    "success": "通过",
+    "failed": "失败",
+    "skipped": "跳过"
+  },
+  "counts": {
+    "passed": "通过",
+    "failed": "失败",
+    "skipped": "跳过"
+  },
+  "summary": {
+    "idle": "准备测试",
+    "idleHint": "测试大约需要一分钟。您的摄像头和麦克风仅在运行时使用。",
+    "running": "测试中…",
+    "runningHint": "保持此页面打开，直到每项检查完成。",
+    "passed": "一切正常",
+    "passedHint": "您的浏览器、设备和网络已准备好召开会议。",
+    "partial": "部分项目未完成",
+    "partialHint": "一些检查被跳过。允许访问您的摄像头和麦克风以对其进行测试。",
+    "failed_one": "{{count}} 检查失败",
+    "failed_other": "{{count}} 检查失败",
+    "failedHint": "打开下面失败的检查以了解详细信息，然后将报告发送给您的 IT 部门。"
+  },
+  "help": {
+    "firewall": "如果网络测试失败，请与 IT 部门检查您的浏览器权限和网络过滤规则（WebRTC、WebSocket、TURN）。"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "error": {
+    "title": "无法访问录制文件",
+    "body": "录制文件不存在或已删除。只有会议主持人可以访问，请联系主持人。"
+  },
+  "expired": {
+    "title": "录制文件已过期",
+    "body": "此录制文件已于 {{date}} 删除。"
+  },
+  "authentication": {
+    "title": "需要身份验证",
+    "body": "请登录后访问录制文件。"
+  },
+  "unsaved": {
+    "title": "无法下载",
+    "body": "录制文件尚未准备好，请稍后重试。"
+  },
+  "success": {
+    "title": "录制文件已准备就绪！",
+    "body": "会议 {{room}} 的录制文件，录制时间：{{created_at}}。",
+    "expiration": "此文件将在 {{expiration_days}} 天后过期。",
+    "button": "下载",
+    "warning": {
+      "title": "链接共享已禁用",
+      "body": "暂不支持通过链接分享录制文件，仅主持人可以下载。"
+    }
+  }
+}

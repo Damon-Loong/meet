@@ -1,0 +1,34 @@
+{
+  "accessibility": {
+    "title": "无障碍",
+    "introduction": "<i>Visio</i> 致力于根据 2005 年 2 月 11 日第 2005-102 号法律第 47 条提供其数字服务。",
+    "declaration": {
+      "title": "无障碍声明",
+      "date": "成立于2024年12月4日。"
+    },
+    "scope": "本无障碍声明适用于网站 visio.numerique.gouv.fr",
+    "complianceStatus": {
+      "title": "合规状态",
+      "body": "visio.numerique.gouv.fr 不符合 RGAA 4.1。该网站尚未经过审核。然而，该团队努力遵循 RGAA 建议创建一个每个人都可以访问的网站。"
+    },
+    "improvement": {
+      "title": "改进与联系",
+      "body": "如果您无法访问内容或服务，您可以联系 lasuite.numerique.gouv.fr 的负责人，以获取可访问的替代方案或以其他形式获取内容。",
+      "contact": {
+        "email": "电子邮件：visio@numerique.gouv.fr",
+        "address": "地址：DINUM, 20 avenue de Ségur 75007 Paris"
+      },
+      "response": "我们尝试在 2 个工作日内回复。"
+    },
+    "recourse": {
+      "title": "追索手段",
+      "introduction": "此过程适用于以下情况：您已向网站管理员报告了一个可访问性问题，导致您无法访问内容或门户网站的一项服务，但您尚未收到满意的答复。",
+      "options": {
+        "intro": "你可以：",
+        "option1": "给权利捍卫者写一条消息",
+        "option2": "联系您所在地区的维权捍卫者代表",
+        "option3": "通过邮件发送信件（免费，无需邮票）：</br> Rights Defender 免费回复 71120 75342 Paris CEDEX 07"
+      }
+    }
+  }
+}

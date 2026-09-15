@@ -1,0 +1,66 @@
+{
+  "defaultName": "参会者",
+  "joined": {
+    "description": "{{name}} 已加入会议"
+  },
+  "raised": {
+    "description": "{{name}} 举起了手。",
+    "cta": "查看举手名单"
+  },
+  "muted": "{{name}} 已将您的麦克风静音。任何参与者都听不到您的声音。",
+  "openChat": "打开聊天",
+  "chatMessageReceived": "{{name}} 说： {{message}}",
+  "lowerHand": {
+    "auto": "检测到您已开始说话，因此已自动放下您的手。",
+    "dismiss": "保持举手状态"
+  },
+  "autoMuteLargeRoom": {
+    "auto": "您已参加一个大型会议。您的麦克风已自动静音。",
+    "dismiss": "取消静音"
+  },
+  "reaction": {
+    "description": "{{name}} 发送了表情回应：{{emoji}}"
+  },
+  "permissionsRemoved": {
+    "camera": "主持人已为所有参与者禁用视频。",
+    "microphone": "主持人已禁用所有与会者的麦克风。",
+    "screen_share": "主持人已为所有参与者禁用屏幕共享。"
+  },
+  "waitingParticipants": {
+    "one": "有一人正在申请加入会议。",
+    "several": "有多人正在申请加入会议。",
+    "open": "打开",
+    "accept": "批准"
+  },
+  "transcript": {
+    "started": "{{name}} 开始会议转录。",
+    "stopped": "{{name}} 停止会议转录。",
+    "limitReached": "转录内容已超过允许的最大持续时间，将自动保存。",
+    "requested": "{{name}} 想要开始会议转录。"
+  },
+  "screenRecording": {
+    "started": "{{name}} 开始会议录制。",
+    "stopped": "{{name}} 停止会议录制。",
+    "limitReached": "录制已达到最长时限，即将自动保存。",
+    "requested": "{{name}} 想要开始会议录制。"
+  },
+  "recordingSave": {
+    "transcript": {
+      "message": "转录内容正在保存。完成后将发送至 <strong>{{email}}</strong>。",
+      "default": "转录内容正在保存。完成后将发送至您的邮箱。"
+    },
+    "screenRecording": {
+      "message": "录制文件正在保存。完成后将通知 <strong>{{email}}</strong>。",
+      "default": "录制文件正在保存。完成后将发送邮件通知您。"
+    }
+  },
+  "roleChanged": {
+    "body": "您的会议身份已变更为：{{role}}。",
+    "roles": {
+      "owner": "主持人",
+      "administrator": "协同主持人",
+      "member": "成员"
+    }
+  },
+  "openMenu": "打开菜单"
+}

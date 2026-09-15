@@ -1,0 +1,190 @@
+{
+  "account": {
+    "currentlyLoggedAs": "您当前登录的身份为 <0>{{user}}</0>",
+    "heading": "账号",
+    "youAreNotLoggedIn": "您尚未登录。",
+    "nameLabel": "您的姓名",
+    "authentication": "身份验证",
+    "nameError": "您的姓名不能为空"
+  },
+  "preferences": {
+    "title": "偏好设置",
+    "idleDisconnectModal": {
+      "label": "无人加入时自动结束会议",
+      "description": "如果几分钟内没有其他人加入，自动离开会议"
+    },
+    "autoMuteLargeRoom": {
+      "label": "自动将我的麦克风静音",
+      "description": "加入大型会议时自动将麦克风静音。"
+    }
+  },
+  "audio": {
+    "microphone": {
+      "heading": "麦克风",
+      "label": "选择麦克风",
+      "disabled": "麦克风已禁用"
+    },
+    "noiseReduction": {
+      "label": "高级语音优化",
+      "heading": "音频过滤器",
+      "ariaLabel": {
+        "enable": "启用降噪",
+        "disable": "禁用降噪"
+      }
+    },
+    "speakers": {
+      "heading": "扬声器",
+      "label": "选择扬声器",
+      "test": "测试",
+      "ongoingTest": "测试声音...",
+      "safariWarning": "受浏览器限制，Safari 暂不支持选择扬声器。"
+    },
+    "permissionsRequired": "需要授权"
+  },
+  "video": {
+    "camera": {
+      "heading": "摄像头",
+      "label": "选择摄像头",
+      "disabled": "摄像头已关闭",
+      "previewAriaLabel": {
+        "enabled": "视频预览已启用",
+        "disabled": "视频预览已禁用"
+      }
+    },
+    "resolution": {
+      "heading": "分辨率",
+      "publish": {
+        "label": "选择您的发送分辨率（最大）",
+        "items": {
+          "veryHigh": "非常高的清晰度",
+          "high": "高清",
+          "medium": "标准清晰度",
+          "low": "低清晰度"
+        }
+      },
+      "subscribe": {
+        "label": "选择您的接收分辨率（最大）",
+        "items": {
+          "high": "高清（自动）",
+          "medium": "标准清晰度",
+          "low": "低清晰度"
+        }
+      }
+    },
+    "permissionsRequired": "需要授权"
+  },
+  "transcription": {
+    "heading": "转录",
+    "language": {
+      "label": "会议语言",
+      "options": {
+        "french": "法语（fr）",
+        "english": "英语（en）",
+        "dutch": "荷兰语 (nl)",
+        "german": "德语 (de)",
+        "auto": "自动检测"
+      }
+    }
+  },
+  "notifications": {
+    "heading": "声音通知",
+    "label": "声音通知",
+    "actions": {
+      "disable": "禁用",
+      "enable": "启用"
+    },
+    "items": {
+      "participantJoined": {
+        "label": "参与者已加入"
+      },
+      "handRaised": {
+        "label": "举手"
+      },
+      "messageReceived": {
+        "label": "收到消息"
+      }
+    }
+  },
+  "shortcuts": {
+    "listLabel": "键盘快捷键",
+    "columnAction": "操作",
+    "columnShortcut": "快捷键"
+  },
+  "dialog": {
+    "heading": "设置"
+  },
+  "language": {
+    "heading": "语言",
+    "label": "语言"
+  },
+  "settingsButtonLabel": "设置",
+  "accessibility": {
+    "announceReactions": {
+      "label": "语音播报表情回应"
+    },
+    "font": {
+      "label": "界面字体",
+      "description": "自定义界面中使用的字体以提高您的阅读舒适度。",
+      "options": {
+        "default": "默认",
+        "lexend": "Lexend（提高可读性）",
+        "atkinson-hyperlegible": "Atkinson Hyperlegible（适合低视力用户）",
+        "opendyslexic": "OpenDyslexic（适合阅读障碍用户）"
+      }
+    },
+    "captions": {
+      "heading": "字幕",
+      "textSize": {
+        "label": "字幕文字大小",
+        "options": {
+          "small": "小",
+          "medium": "中",
+          "large": "大"
+        }
+      },
+      "fontColor": {
+        "label": "字体颜色",
+        "options": {
+          "default": "默认",
+          "white": "白色",
+          "black": "黑色",
+          "blue": "蓝色",
+          "green": "绿色",
+          "red": "红色",
+          "yellow": "黄色",
+          "cyan": "青色",
+          "magenta": "品红"
+        }
+      },
+      "backgroundColor": {
+        "label": "背景颜色",
+        "options": {
+          "default": "默认",
+          "white": "白色",
+          "black": "黑色",
+          "blue": "蓝色",
+          "green": "绿色",
+          "red": "红色",
+          "yellow": "黄色",
+          "cyan": "青色",
+          "magenta": "品红"
+        }
+      }
+    }
+  },
+  "tabs": {
+    "account": "账号",
+    "audio": "音频",
+    "video": "视频",
+    "general": "常规",
+    "notifications": "通知",
+    "accessibility": "无障碍",
+    "transcription": "转录",
+    "shortcuts": "快捷键",
+    "rooms": "会议室"
+  },
+  "roomDefaults": {
+    "heading": "会议默认设置",
+    "description": "选择创建会议时默认应用的设置。您仍可在主持人设置中单独调整每场会议。"
+  }
+}

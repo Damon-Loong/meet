@@ -1,0 +1,18 @@
+{
+  "createMeeting": {
+    "createButton": "创建会议",
+    "joinButton": "加入会议",
+    "copyLinkTooltip": "复制链接",
+    "resetLabel": "重置",
+    "participantLimit": "最多支持 150 位参会者。",
+    "popupBlocked": "弹出窗口被阻止。请允许该网站弹出窗口。",
+    "settingsTooltip": "会议设置"
+  },
+  "roomSettings": {
+    "title": "会议设置",
+    "description": "配置会议 {{roomSlug}}。",
+    "notAllowed": "您无权修改此会议的设置。",
+    "error": "无法加载会议设置。",
+    "closeButton": "关闭"
+  }
+}
