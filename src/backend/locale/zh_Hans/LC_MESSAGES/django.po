@@ -37,6 +37,18 @@ msgstr "录制"
 msgid "Recordings"
 msgstr "录制"
 
+msgid "Recording file"
+msgstr "录制文件"
+
+msgid "View"
+msgstr "查看"
+
+msgid "Download"
+msgstr "下载"
+
+msgid "Unavailable"
+msgstr "不可用"
+
 msgid "Application"
 msgstr "应用"
 

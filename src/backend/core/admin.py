@@ -3,7 +3,10 @@
 from django import forms
 from django.contrib import admin, messages
 from django.contrib.auth import admin as auth_admin
+from django.core.files.storage import default_storage
 from django.db import transaction
+from django.http import FileResponse, Http404
+from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 
@@ -418,6 +421,7 @@ class RecordingAdmin(admin.ModelAdmin):
         "get_owner",
         "created_at",
         "worker_id",
+        "recording_file",
     )
     list_filter = ["created_at"]
     list_select_related = ("room",)
@@ -430,8 +434,62 @@ class RecordingAdmin(admin.ModelAdmin):
         "status",
         "updated_at",
         "worker_id",
+        "recording_file",
     )
     actions = [resend_notification, mark_as_failed_to_stop]
+
+    def get_urls(self):
+        """Add a staff-only endpoint that streams a recording from private storage."""
+
+        custom_urls = [
+            path(
+                "<uuid:object_id>/media/",
+                self.admin_site.admin_view(self.recording_media_view),
+                name="core_recording_media",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    @admin.display(description=_("Recording file"))
+    def recording_file(self, obj):
+        """Display view and download actions for saved, non-expired recordings."""
+
+        if not obj or not obj.is_saved or obj.is_expired:
+            return _("Unavailable")
+
+        url = reverse("admin:core_recording_media", args=[obj.pk])
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener">{}</a>&nbsp;&nbsp;'
+            '<a href="{}?download=1">{}</a>',
+            url,
+            _("View"),
+            url,
+            _("Download"),
+        )
+
+    def recording_media_view(self, request, object_id):
+        """Stream a private recording to authorized Django admin users."""
+
+        recording = self.get_object(request, object_id)
+        if recording is None or not self.has_view_permission(request, recording):
+            raise Http404
+        if not recording.is_saved or recording.is_expired:
+            raise Http404
+
+        try:
+            media_file = default_storage.open(recording.key, "rb")
+        except FileNotFoundError as exc:
+            raise Http404 from exc
+
+        filename = (
+            f"{recording.room.slug}-{recording.created_at:%Y%m%d-%H%M%S}."
+            f"{recording.extension}"
+        )
+        return FileResponse(
+            media_file,
+            as_attachment=request.GET.get("download") == "1",
+            filename=filename,
+        )
 
     def get_queryset(self, request):
         """Optimize queries by prefetching related access and user data to avoid N+1 queries."""
