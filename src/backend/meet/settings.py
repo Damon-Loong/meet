@@ -265,7 +265,9 @@ class Base(Configuration):
 
     LOCALE_PATHS = (path.join(BASE_DIR, "locale"),)
 
-    TIME_ZONE = "UTC"
+    TIME_ZONE = values.Value(
+        "UTC", environ_name="TIME_ZONE", environ_prefix=None
+    )
     USE_I18N = True
     USE_TZ = True
 
