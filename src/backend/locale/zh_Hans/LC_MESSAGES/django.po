@@ -1,0 +1,311 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_Hans\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "admin email address"
+msgstr "管理员邮箱"
+
+msgid "user"
+msgstr "用户"
+
+msgid "users"
+msgstr "用户"
+
+msgid "Resource"
+msgstr "资源"
+
+msgid "Resources"
+msgstr "资源"
+
+msgid "Resource access"
+msgstr "资源访问"
+
+msgid "Resource accesses"
+msgstr "资源访问"
+
+msgid "Room"
+msgstr "会议室"
+
+msgid "Rooms"
+msgstr "会议室"
+
+msgid "Recording"
+msgstr "录制"
+
+msgid "Recordings"
+msgstr "录制"
+
+msgid "Application"
+msgstr "应用"
+
+msgid "Applications"
+msgstr "应用"
+
+msgid "Application domain"
+msgstr "应用域名"
+
+msgid "Application domains"
+msgstr "应用域名"
+
+msgid "File"
+msgstr "文件"
+
+msgid "Files"
+msgstr "文件"
+
+msgid "Recording/user relation"
+msgstr "录制与用户关联"
+
+msgid "Recording/user relations"
+msgstr "录制与用户关联"
+
+msgid "Meet core"
+msgstr "会议核心数据"
+
+msgid "Personal info"
+msgstr "个人信息"
+
+msgid "Permissions"
+msgstr "权限"
+
+msgid "Important dates"
+msgstr "重要日期"
+
+msgid "Content"
+msgstr "内容"
+
+msgid "Deletion"
+msgstr "删除信息"
+
+msgid "Derived info"
+msgstr "派生信息"
+
+msgid "Timestamps"
+msgstr "时间戳"
+
+msgid "File preview"
+msgstr "文件预览"
+
+msgid "No owner"
+msgstr "无所有者"
+
+msgid "Multiple owners"
+msgstr "多个所有者"
+
+msgid "No scopes"
+msgstr "无权限范围"
+
+msgid "Scopes"
+msgstr "权限范围"
+
+msgid "Client ID"
+msgstr "客户端 ID"
+
+msgid "Client secret"
+msgstr "客户端密钥"
+
+msgid "Is active"
+msgstr "是否启用"
+
+msgid "Member"
+msgstr "成员"
+
+msgid "Administrator"
+msgstr "管理员"
+
+msgid "Owner"
+msgstr "所有者"
+
+msgid "Initiated"
+msgstr "已发起"
+
+msgid "Active"
+msgstr "进行中"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "Saved"
+msgstr "已保存"
+
+msgid "Aborted"
+msgstr "已中止"
+
+msgid "Failed to Start"
+msgstr "启动失败"
+
+msgid "Failed to Stop"
+msgstr "停止失败"
+
+msgid "Notification succeeded"
+msgstr "通知成功"
+
+msgid "External process successful"
+msgstr "外部处理成功"
+
+msgid "External process failed"
+msgstr "外部处理失败"
+
+msgid "Public Access"
+msgstr "公开访问"
+
+msgid "Trusted Access"
+msgstr "受信任访问"
+
+msgid "Restricted Access"
+msgstr "受限访问"
+
+msgid "id"
+msgstr "ID"
+
+msgid "primary key for the record as UUID"
+msgstr "该记录的 UUID 主键"
+
+msgid "created on"
+msgstr "创建时间"
+
+msgid "date and time at which a record was created"
+msgstr "该记录的创建日期和时间"
+
+msgid "updated on"
+msgstr "更新时间"
+
+msgid "date and time at which a record was last updated"
+msgstr "该记录最后更新的日期和时间"
+
+msgid "sub"
+msgstr "身份标识（sub）"
+
+msgid "identity email address"
+msgstr "身份邮箱"
+
+msgid "full name"
+msgstr "全名"
+
+msgid "short name"
+msgstr "简称"
+
+msgid "language"
+msgstr "语言"
+
+msgid "The language in which the user wants to see the interface."
+msgstr "用户希望使用的界面语言。"
+
+msgid "The timezone in which the user wants to see times."
+msgstr "用户查看时间时使用的时区。"
+
+msgid "default room access level"
+msgstr "默认会议室访问级别"
+
+msgid "Access level applied by default to new rooms created by this user. When empty, the instance default is used."
+msgstr "该用户创建新会议室时默认使用的访问级别；留空则使用实例默认值。"
+
+msgid "default room configuration"
+msgstr "默认会议室配置"
+
+msgid "Configurations applied by default to new rooms created by this user."
+msgstr "该用户创建新会议室时默认应用的配置。"
+
+msgid "device"
+msgstr "设备账号"
+
+msgid "Whether the user is a device or a real user."
+msgstr "该账号是设备还是实际用户。"
+
+msgid "staff status"
+msgstr "工作人员状态"
+
+msgid "Whether the user can log into this admin site."
+msgstr "该用户是否可以登录管理后台。"
+
+msgid "active"
+msgstr "启用"
+
+msgid "Whether this user should be treated as active. Unselect this instead of deleting accounts."
+msgstr "该用户是否处于启用状态。停用账号时应取消此项，而不是删除账号。"
+
+msgid "Resource access with this User and Resource already exists."
+msgstr "该用户与资源之间的访问关系已经存在。"
+
+msgid "Visio room configuration"
+msgstr "视频会议室配置"
+
+msgid "Values for Visio parameters to configure the room."
+msgstr "用于配置会议室的视频会议参数。"
+
+msgid "Room PIN code"
+msgstr "会议室 PIN 码"
+
+msgid "Unique n-digit code that identifies this room in telephony mode."
+msgstr "电话模式下标识该会议室的唯一数字代码。"
+
+msgid "Worker ID"
+msgstr "工作进程 ID"
+
+msgid "Recording mode"
+msgstr "录制模式"
+
+msgid "Defines the mode of recording being called."
+msgstr "定义调用的录制模式。"
+
+msgid "Recording options"
+msgstr "录制选项"
+
+msgid "External Process ID"
+msgstr "外部进程 ID"
+
+msgid "ID of the external process associated with the recording."
+msgstr "与该录制关联的外部进程 ID。"
+
+msgid "Create rooms"
+msgstr "创建会议室"
+
+msgid "List rooms"
+msgstr "查看会议室列表"
+
+msgid "Retrieve room details"
+msgstr "查看会议室详情"
+
+msgid "Update rooms"
+msgstr "更新会议室"
+
+msgid "Delete rooms"
+msgstr "删除会议室"
+
+msgid "Application name"
+msgstr "应用名称"
+
+msgid "Descriptive name for this application."
+msgstr "该应用的描述性名称。"
+
+msgid "Hashed on Save. Copy it now if this is a new secret."
+msgstr "保存时将进行哈希处理。如果这是新密钥，请立即复制。"
+
+msgid "Enter a valid domain"
+msgstr "请输入有效域名"
+
+msgid "Domain"
+msgstr "域名"
+
+msgid "Email domain this application can act on behalf of."
+msgstr "该应用可代表其执行操作的电子邮件域名。"
+
+msgid "Pending"
+msgstr "等待处理"
+
+msgid "Analyzing"
+msgstr "分析中"
+
+msgid "Ready"
+msgstr "就绪"
+
+msgid "Background image"
+msgstr "背景图片"
+
+msgid "title"
+msgstr "标题"
+
+msgid "Malware detection info when the analysis status is unsafe."
+msgstr "分析状态为不安全时的恶意软件检测信息。"

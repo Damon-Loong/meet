@@ -473,6 +473,15 @@ class ApplicationAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        labels = {
+            "scopes": _("Scopes"),
+            "client_id": _("Client ID"),
+            "client_secret": _("Client secret"),
+            "is_active": _("Is active"),
+        }
+        for field_name, label in labels.items():
+            if field_name in self.fields:
+                self.fields[field_name].label = label
         if self.instance.pk and self.instance.scopes:
             self.fields["scopes"].initial = self.instance.scopes
 
