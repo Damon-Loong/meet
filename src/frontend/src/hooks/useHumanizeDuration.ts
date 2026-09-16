@@ -25,6 +25,12 @@ function fallbackFormat(ms: number, locale: string): string {
 let humanizeDuration: typeof humanizeDurationType | null = null
 let loadPromise: Promise<typeof humanizeDurationType> | null = null
 
+const humanizeLanguage = (language: string) => {
+  // i18next uses BCP 47 while humanize-duration uses an underscore here.
+  if (language.toLowerCase() === 'zh-cn') return 'zh_CN'
+  return language
+}
+
 const loadHumanizeDuration = () => {
   loadPromise ??= import('humanize-duration').then((m) => {
     humanizeDuration = m.default
@@ -57,7 +63,7 @@ export const useHumanizeDuration = () => {
         return fallbackFormat(duration, i18n.language)
 
       return humanizeDuration(duration, {
-        language: i18n.language,
+        language: humanizeLanguage(i18n.language),
         delimiter: ' ',
         ...(round !== undefined && { round }),
         ...(largest !== undefined && { largest }),
