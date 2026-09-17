@@ -28,8 +28,17 @@ export const SoundTester = () => {
     })
   }, [devices, activeDeviceId])
 
-  // prevent pausing the sound
-  navigator.mediaSession.setActionHandler('pause', function () {})
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return
+
+    // Prevent the OS media controls from pausing the short speaker test.
+    // Some mobile and embedded browsers do not implement Media Session.
+    navigator.mediaSession.setActionHandler('pause', () => {})
+
+    return () => {
+      navigator.mediaSession.setActionHandler('pause', null)
+    }
+  }, [])
 
   return (
     <>

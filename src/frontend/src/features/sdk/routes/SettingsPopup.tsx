@@ -209,7 +209,7 @@ const SettingsPopup = () => {
         })}
       >
         <img
-          src="/assets/logo.svg"
+          src="/assets/logo-mini.svg"
           alt=""
           className={css({
             maxHeight: '40px',

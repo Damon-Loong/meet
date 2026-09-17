@@ -18,7 +18,7 @@ import { useMemo } from 'react'
 
 const Logo = () => (
   <img
-    src="/assets/logo.svg"
+    src="/assets/logo-mini.svg"
     alt={`${import.meta.env.VITE_APP_TITLE}`}
     className={`Header-logo ${css({
       maxHeight: { base: '30px', sm: '40px' },
