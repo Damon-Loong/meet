@@ -757,6 +757,12 @@ class Base(Configuration):
     RECORDING_ENABLE = values.BooleanValue(
         False, environ_name="RECORDING_ENABLE", environ_prefix=None
     )
+    AUTO_TRANSCRIPTION_ENABLED = values.BooleanValue(
+        False, environ_name="AUTO_TRANSCRIPTION_ENABLED", environ_prefix=None
+    )
+    AUTO_TRANSCRIPTION_LANGUAGE = values.Value(
+        "zh", environ_name="AUTO_TRANSCRIPTION_LANGUAGE", environ_prefix=None
+    )
     RECORDING_OUTPUT_FOLDER = values.Value(
         "recordings", environ_name="RECORDING_OUTPUT_FOLDER", environ_prefix=None
     )
@@ -818,6 +824,9 @@ class Base(Configuration):
 
     SUMMARY_SERVICE_VERSION = values.PositiveIntegerValue(
         1, environ_name="SUMMARY_SERVICE_VERSION", environ_prefix=None
+    )
+    SUMMARY_AUTO_CREATE = values.BooleanValue(
+        False, environ_name="SUMMARY_AUTO_CREATE", environ_prefix=None
     )
     SUMMARY_SERVICE_ENDPOINT = values.Value(
         None, environ_name="SUMMARY_SERVICE_ENDPOINT", environ_prefix=None

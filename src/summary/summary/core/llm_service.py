@@ -119,6 +119,13 @@ class LLMService:
         Returns None if the call fails.
         """
         try:
+            if settings.summary_output_language:
+                system_prompt = (
+                    f"{system_prompt}\n\n"
+                    f"Always answer in {settings.summary_output_language}. "
+                    "Do not invent decisions, owners, deadlines, or facts that "
+                    "are absent from the transcript."
+                )
             params: dict[str, Any] = {
                 "model": settings.llm_model,
                 "messages": [

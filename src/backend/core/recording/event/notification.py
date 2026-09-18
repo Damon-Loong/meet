@@ -372,7 +372,8 @@ class NotificationService:
                 ),
                 "download_link": f"{get_recording_download_base_url()}/{recording.id}",
                 "form_link": form_link,
-                "auto_create_summary": is_user_feature_flag_enabled(
+                "auto_create_summary": settings.SUMMARY_AUTO_CREATE
+                or is_user_feature_flag_enabled(
                     owner_access.user, UserFeatureFlag.TRANSCRIPT_SUMMARY_ENABLED
                 ),
             },

@@ -8,6 +8,8 @@ from enum import Enum
 from logging import getLogger
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
 
 from livekit import api
 
@@ -21,6 +23,9 @@ from core.recording.services.recording_events import (
     RecordingEventsService,
     RecordingNotSavableError,
 )
+from core.recording.worker.exceptions import RecordingStartError
+from core.recording.worker.factories import get_worker_service
+from core.recording.worker.mediator import WorkerServiceMediator
 
 from .lobby import LobbyService
 from .presence import PresenceCache
@@ -256,6 +261,9 @@ class LiveKitEventsService:
         except models.Room.DoesNotExist as err:
             raise ActionFailedError(f"Room with ID {room_id} does not exist") from err
 
+        if settings.AUTO_TRANSCRIPTION_ENABLED:
+            self._start_automatic_transcription(room)
+
         if settings.ROOM_TELEPHONY_ENABLED or settings.ROOMKIT_ENABLED:
             try:
                 self.sip_management.ensure_dispatch_rule(room)
@@ -263,6 +271,67 @@ class LiveKitEventsService:
                 raise ActionFailedError(
                     f"Failed to create sip dispatch rule for room {room_id}"
                 ) from e
+
+    @staticmethod
+    def _start_automatic_transcription(room):
+        """Start the existing transcript recording pipeline for a new room."""
+
+        owner_access = (
+            models.ResourceAccess.objects.select_related("user")
+            .filter(resource=room, role=models.RoleChoices.OWNER)
+            .order_by("created_at")
+            .first()
+        )
+        if owner_access is None:
+            logger.warning(
+                "Automatic transcription skipped for room %s: no owner found",
+                room.id,
+            )
+            return
+
+        options = {
+            "language": settings.AUTO_TRANSCRIPTION_LANGUAGE,
+            "transcribe": True,
+            "automatic": True,
+        }
+
+        try:
+            with transaction.atomic():
+                recording = models.Recording.objects.create(
+                    room=room,
+                    mode=models.RecordingModeChoices.TRANSCRIPT,
+                    options=options,
+                )
+                models.RecordingAccess.objects.create(
+                    user=owner_access.user,
+                    role=models.RoleChoices.OWNER,
+                    recording=recording,
+                )
+        except (DjangoValidationError, IntegrityError):
+            logger.info(
+                "Automatic transcription already active for room %s; ignoring",
+                room.id,
+            )
+            return
+
+        worker_manager = WorkerServiceMediator(
+            worker_service=get_worker_service(mode=recording.mode)
+        )
+        try:
+            worker_manager.start(recording)
+        except RecordingStartError as exc:
+            logger.exception(
+                "Automatic transcription failed to start for room %s", room.id
+            )
+            raise ActionFailedError(
+                f"Failed to start automatic transcription for room {room.id}"
+            ) from exc
+
+        logger.info(
+            "Automatic transcription started for room %s (recording %s)",
+            room.id,
+            recording.id,
+        )
 
     def _handle_room_finished(self, data):
         """Handle 'room_finished' event."""

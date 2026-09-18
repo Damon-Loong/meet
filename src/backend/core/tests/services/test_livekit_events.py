@@ -9,7 +9,14 @@ from unittest import mock
 import pytest
 from livekit.api import EgressStatus
 
-from core.factories import RecordingFactory, RoomFactory
+from core import models
+from core.factories import (
+    RecordingFactory,
+    RoomFactory,
+    UserFactory,
+    UserResourceAccessFactory,
+)
+from core.recording.worker.mediator import WorkerServiceMediator
 from core.recording.services.recording_events import RecordingEventsService
 from core.services.livekit_events import (
     ActionFailedError,
@@ -551,6 +558,60 @@ def test_handle_room_started_creates_dispatch_rule_successfully(
     service._handle_room_started(mock_data)
 
     mock_ensure_dispatch_rule.assert_called_once_with(room)
+
+
+@mock.patch.object(WorkerServiceMediator, "start")
+def test_handle_room_started_starts_automatic_transcription(
+    mock_start, service, settings
+):
+    """The first room event starts the existing transcript pipeline."""
+    settings.AUTO_TRANSCRIPTION_ENABLED = True
+    settings.AUTO_TRANSCRIPTION_LANGUAGE = "zh"
+    settings.ROOM_TELEPHONY_ENABLED = False
+    settings.ROOMKIT_ENABLED = False
+    owner = UserFactory()
+    room = RoomFactory()
+    UserResourceAccessFactory(
+        resource=room, user=owner, role=models.RoleChoices.OWNER
+    )
+    mock_data = mock.MagicMock()
+    mock_data.room.name = str(room.id)
+
+    service._handle_room_started(mock_data)
+
+    recording = models.Recording.objects.get(room=room)
+    assert recording.mode == models.RecordingModeChoices.TRANSCRIPT
+    assert recording.options == {
+        "language": "zh",
+        "transcribe": True,
+        "automatic": True,
+    }
+    assert recording.accesses.get().user == owner
+    mock_start.assert_called_once_with(recording)
+
+
+@mock.patch.object(WorkerServiceMediator, "start")
+def test_handle_room_started_automatic_transcription_is_idempotent(
+    mock_start, service, settings
+):
+    """A retried room_started webhook must not create a second recording."""
+    settings.AUTO_TRANSCRIPTION_ENABLED = True
+    settings.AUTO_TRANSCRIPTION_LANGUAGE = "zh"
+    settings.ROOM_TELEPHONY_ENABLED = False
+    settings.ROOMKIT_ENABLED = False
+    owner = UserFactory()
+    room = RoomFactory()
+    UserResourceAccessFactory(
+        resource=room, user=owner, role=models.RoleChoices.OWNER
+    )
+    mock_data = mock.MagicMock()
+    mock_data.room.name = str(room.id)
+
+    service._handle_room_started(mock_data)
+    service._handle_room_started(mock_data)
+
+    assert models.Recording.objects.filter(room=room).count() == 1
+    assert mock_start.call_count == 1
 
 
 @mock.patch.object(SIPManagement, "ensure_dispatch_rule")

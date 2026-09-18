@@ -18,6 +18,7 @@ from requests import exceptions
 from summary.core.analytics import MetadataManager, get_analytics
 from summary.core.config import get_settings
 from summary.core.docs_service import create_document_in_lasuite_docs
+from summary.core.email_service import send_meeting_documents
 from summary.core.file_service import (
     CorruptedAudioFile,
     FileService,
@@ -139,14 +140,20 @@ def transcribe_audio(
             # At the same time "diarized_json" should be the value
             # provided to STT endpoints in our context.
             url = urljoin(base_url.rstrip("/") + "/", "audio/transcriptions")
+            transcription_data = {
+                "model": settings.whisperx_asr_model,
+                "language": language,
+                "timestamp_granularities": ["word", "segment"],
+                "response_format": settings.whisperx_response_format,
+            }
+            if settings.whisperx_max_completion_tokens:
+                transcription_data["max_completion_tokens"] = (
+                    settings.whisperx_max_completion_tokens
+                )
+
             res = requests.post(
                 url,
-                data={
-                    "model": settings.whisperx_asr_model,
-                    "language": language,
-                    "timestamp_granularities": ["word", "segment"],
-                    "response_format": "diarized_json",
-                },
+                data=transcription_data,
                 files={"file": audio_file},
                 headers={"Authorization": f"Bearer {api_key}"},
                 # Mimic OpenAI's timeout settings
@@ -504,20 +511,20 @@ def process_audio_transcribe_v2_task(
         except Exception as e:
             logger.error(f"Failed to resolve speaker identities, skipping: {e}")
 
+    transcript_config = payload.push_to_docs_config
+    content = format_transcript(
+        transcription_res.model_dump(),
+        payload.context_language,
+        payload.language,
+        transcript_config.download_link if transcript_config else None,
+        transcript_config.form_link if transcript_config else None,
+    )
+
     should_push_to_docs = _should_push_to_docs(payload)
     # We do it synchronously for now
     if should_push_to_docs:
         if payload.push_to_docs_config is None:
             raise ValueError("Push to docs config is missing")
-
-        # Format output
-        content = format_transcript(
-            transcription_res.model_dump(),
-            payload.context_language,
-            payload.language,
-            payload.push_to_docs_config.download_link,
-            payload.push_to_docs_config.form_link,
-        )
 
         create_document_in_lasuite_docs(
             content=content,
@@ -526,26 +533,30 @@ def process_audio_transcribe_v2_task(
             sub=payload.user_sub,
         )
 
-        if _should_auto_create_summary(payload):
-            locale = get_locale(payload.context_language, payload.language)
+    # Summary generation is independent from La Suite Docs. This allows
+    # self-hosted deployments to deliver transcript/summary by email only.
+    if _should_auto_create_summary(payload):
+        if payload.push_to_docs_config is None:
+            raise ValueError("Summary delivery configuration is missing")
 
-            summarize_v2_task.apply_async(
-                args=[
-                    SummarizeTaskJob(
-                        received_at=datetime.now(timezone.utc),
-                        tenant_id=payload.tenant_id,
-                        user_sub=payload.user_sub,
-                        user_email=payload.user_email,
-                        push_to_docs_config=PushToDocsBaseConfig(
-                            user_email=payload.push_to_docs_config.user_email,
-                            title=locale.summary_title_template.format(
-                                title=payload.push_to_docs_config.title
-                            ),
+        locale = get_locale(payload.context_language, payload.language)
+        summarize_v2_task.apply_async(
+            args=[
+                SummarizeTaskJob(
+                    received_at=datetime.now(timezone.utc),
+                    tenant_id=payload.tenant_id,
+                    user_sub=payload.user_sub,
+                    user_email=payload.user_email,
+                    push_to_docs_config=PushToDocsBaseConfig(
+                        user_email=payload.push_to_docs_config.user_email,
+                        title=locale.summary_title_template.format(
+                            title=payload.push_to_docs_config.title
                         ),
-                        content=content,
-                    ).model_dump()
-                ],
-            )
+                    ),
+                    content=content,
+                ).model_dump()
+            ],
+        )
 
     file_service.store_transcript(
         transcript=transcription_res,
@@ -636,6 +647,14 @@ def summarize_v2_task(
     )
     job_id = self.request.id
     file_service.store_summary(summary=summary, job_id=job_id)
+
+    if payload.user_email and payload.push_to_docs_config:
+        send_meeting_documents(
+            recipient=str(payload.user_email),
+            title=payload.push_to_docs_config.title,
+            transcript=payload.content,
+            summary=summary,
+        )
 
     if _should_push_to_docs(payload):
         if payload.push_to_docs_config is None:

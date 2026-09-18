@@ -91,12 +91,16 @@ class Settings(BaseSettings):
     whisperx_api_key: SecretStr
     whisperx_base_url: Url = "https://api.openai.com/v1"
     whisperx_asr_model: str = "whisper-1"
+    whisperx_response_format: str = "diarized_json"
+    whisperx_max_completion_tokens: int | None = 65536
     # ISO 639-1 language code (e.g., "en", "fr", "es")
     whisperx_default_language: Optional[str] = None
-    whisperx_allowed_languages: Set[str] = {"en", "fr", "de", "nl"}
+    whisperx_allowed_languages: Set[str] = {"en", "fr", "de", "nl", "zh"}
     llm_base_url: str
     llm_api_key: SecretStr
     llm_model: str
+    summary_output_language: str = "zh-CN"
+    default_context_language: str = "en"
 
     # Transcription processing
     hallucination_patterns: List[str] = ["Vap'n'Roll Thierry"]
@@ -115,6 +119,17 @@ class Settings(BaseSettings):
 
     # Summary related settings
     is_summary_enabled: bool = True
+
+    # Direct email delivery (used when La Suite Docs is not deployed)
+    email_delivery_enabled: bool = False
+    email_host: str = "localhost"
+    email_port: int = 25
+    email_host_user: str = ""
+    email_host_password: SecretStr = SecretStr("")
+    email_use_tls: bool = False
+    email_use_ssl: bool = False
+    email_from: str = "meet@example.com"
+    email_brand_name: str = "Meet"
 
     # Docs service configuration
     is_lasuite_docs_integration_enabled: bool = False
