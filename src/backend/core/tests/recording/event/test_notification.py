@@ -426,6 +426,51 @@ def test_notify_summary_service_post_args_without_metadata(
 @mock.patch.object(
     NotificationService, "_get_recording_timestamps", new_callable=mock.AsyncMock
 )
+def test_notify_summary_service_uses_admin_email_and_user_id_fallback(
+    mock_get_recording_timestamps,
+    mock_generate_download_s3_url,
+    mock_post,
+    settings,
+):
+    """Local users without OIDC fields can still receive transcript emails."""
+    settings.SUMMARY_SERVICE_VERSION = 2
+    settings.SUMMARY_SERVICE_ENDPOINT = "https://summary.test/api/v2/tasks"
+    settings.SUMMARY_SERVICE_API_TOKEN = "summary-token"
+    settings.RECORDING_DOWNLOAD_BASE_URL = "https://app.test/recordings"
+    settings.METADATA_COLLECTOR_ENABLED = False
+
+    recording = factories.RecordingFactory(room__name="room", room__topic="Budget")
+    owner = factories.UserFactory(
+        email=None,
+        sub=None,
+        admin_email="local-owner@test.com",
+        language="zh-hans",
+        timezone="Asia/Shanghai",
+    )
+    factories.UserRecordingAccessFactory(
+        recording=recording, role=models.RoleChoices.OWNER, user=owner
+    )
+    mock_get_recording_timestamps.return_value = (None, None)
+    mock_generate_download_s3_url.return_value = "https://storage.test/recording.ogg"
+    mock_response = mock.Mock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {"job_id": "job-local"}
+    mock_post.return_value = mock_response
+
+    assert NotificationService._notify_summary_service(recording) is True
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["user_sub"] == str(owner.id)
+    assert payload["user_email"] == "local-owner@test.com"
+    assert payload["push_to_docs_config"]["user_email"] == "local-owner@test.com"
+    assert "Budget" in payload["push_to_docs_config"]["title"]
+
+
+@mock.patch("core.recording.event.notification.requests.post")
+@mock.patch("core.recording.event.notification.generate_download_s3_url")
+@mock.patch.object(
+    NotificationService, "_get_recording_timestamps", new_callable=mock.AsyncMock
+)
 def test_notify_summary_service_v2_payload_json_serializable_without_timestamps(
     mock_get_recording_timestamps,
     mock_generate_download_s3_url,

@@ -65,21 +65,26 @@ class WorkerServiceMediator:
         finally:
             recording.save()
 
-        if not recording.options.get("automatic", False):
-            mode = recording.options.get("original_mode", None) or recording.mode
+        is_automatic = recording.options.get("automatic", False)
+        mode = recording.options.get("original_mode", None) or recording.mode
 
-            try:
+        try:
+            if is_automatic:
+                RoomManagement.update_metadata(
+                    room_name, {"transcription_status": "starting"}
+                )
+            else:
                 RoomManagement.update_metadata(
                     room_name,
                     {"recording_mode": mode, "recording_status": "starting"},
                 )
-            except RoomNotFoundException:
-                logger.info(
-                    "LiveKit room %s no longer exists, skipping metadata update",
-                    room_name,
-                )
-            except RoomManagementException as e:
-                logger.exception("Failed to update room's metadata: %s", e)
+        except RoomNotFoundException:
+            logger.info(
+                "LiveKit room %s no longer exists, skipping metadata update",
+                room_name,
+            )
+        except RoomManagementException as e:
+            logger.exception("Failed to update room's metadata: %s", e)
 
         logger.info(
             "Worker started for room %s (worker ID: %s)",

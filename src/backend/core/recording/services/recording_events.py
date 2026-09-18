@@ -33,9 +33,6 @@ class RecordingEventsService:
     def handle_update(recording: Recording, egress_status):
         """Handle egress status updates and sync recording state to room metadata."""
 
-        if recording.options.get("automatic", False):
-            return
-
         room_name = str(recording.room.id)
 
         status_mapping = {
@@ -46,9 +43,14 @@ class RecordingEventsService:
 
         recording_status = status_mapping.get(egress_status)
         if recording_status:
+            status_key = (
+                "transcription_status"
+                if recording.options.get("automatic", False)
+                else "recording_status"
+            )
             try:
                 RoomManagement.update_metadata(
-                    room_name, {"recording_status": recording_status}
+                    room_name, {status_key: recording_status}
                 )
             except RoomNotFoundException:
                 logger.info(

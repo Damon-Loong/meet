@@ -30,6 +30,17 @@ export const useRecordingStatuses = (
   const isRecording = useIsRecording()
 
   return useMemo(() => {
+    if (mode === RecordingMode.Transcript && metadata?.transcription_status) {
+      const status = metadata.transcription_status as RecordingStatus
+      return {
+        isAnotherModeStarted: false,
+        isStarting: status === RecordingStatus.Starting,
+        isStarted: status === RecordingStatus.Started,
+        isSaving: status === RecordingStatus.Saving,
+        isActive: ACTIVE_STATUSES.includes(status),
+      }
+    }
+
     if (metadata && metadata?.recording_mode === mode) {
       return {
         isAnotherModeStarted: false,

@@ -255,6 +255,13 @@ class NotificationService:
             logger.error("No owner found for recording %s", recording.id)
             return False
 
+        owner = owner_access.user
+        notification_email = owner.email or owner.admin_email
+        if not notification_email:
+            logger.error("No notification email found for recording %s", recording.id)
+            return False
+        owner_sub = str(owner.sub or owner.id)
+
         started_at, ended_at = async_to_sync(
             NotificationService._get_recording_timestamps
         )(recording.worker_id)
@@ -368,8 +375,8 @@ class NotificationService:
         }
 
         payload = {
-            "user_sub": owner_access.user.sub,
-            "user_email": owner_access.user.email,
+            "user_sub": owner_sub,
+            "user_email": notification_email,
             "cloud_storage_url": generate_download_s3_url(
                 recording.key,
                 expires_in=settings.SUMMARY_SERVICE_CLOUD_STORAGE_SIGNED_URL_EXPIRY_SECONDS,
@@ -378,21 +385,21 @@ class NotificationService:
             "language": recording.options.get(
                 "language", get_language().split("-")[0].lower()
             ),
-            "context_language": owner_access.user.language,
+            "context_language": owner.language,
             "push_to_docs_config": {
-                "user_email": owner_access.user.email,
+                "user_email": notification_email,
                 "title": NotificationService._generate_title(
-                    locale=owner_access.user.language
+                    locale=owner.language
                     or recording.options.get("language", get_language()),
-                    room=recording.room.name,
+                    room=recording.room.topic or recording.room.name,
                     recording_datetime=started_at,
-                    owner_timezone=str(owner_access.user.timezone),
+                    owner_timezone=str(owner.timezone),
                 ),
                 "download_link": f"{get_recording_download_base_url()}/{recording.id}",
                 "form_link": form_link,
                 "auto_create_summary": settings.SUMMARY_AUTO_CREATE
                 or is_user_feature_flag_enabled(
-                    owner_access.user, UserFeatureFlag.TRANSCRIPT_SUMMARY_ENABLED
+                    owner, UserFeatureFlag.TRANSCRIPT_SUMMARY_ENABLED
                 ),
             },
             "metadata": metadata_payload,

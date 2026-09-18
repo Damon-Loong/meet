@@ -65,10 +65,10 @@ def test_start_recording_success(mock_update_metadata, mediator, mock_worker_ser
 
 
 @mock.patch("core.services.room_management.RoomManagement.update_metadata")
-def test_automatic_recording_does_not_publish_ui_metadata(
+def test_automatic_recording_publishes_separate_transcription_metadata(
     mock_update_metadata, mediator, mock_worker_service
 ):
-    """Automatic transcription must not occupy the manual recording UI state."""
+    """Automatic transcription uses metadata independent from video recording."""
     mock_worker_service.start.return_value = "automatic-worker"
     recording = RecordingFactory(
         status=RecordingStatusChoices.INITIATED,
@@ -79,7 +79,9 @@ def test_automatic_recording_does_not_publish_ui_metadata(
 
     mediator.start(recording)
 
-    mock_update_metadata.assert_not_called()
+    mock_update_metadata.assert_called_once_with(
+        str(recording.room.id), {"transcription_status": "starting"}
+    )
 
 
 @pytest.mark.parametrize(

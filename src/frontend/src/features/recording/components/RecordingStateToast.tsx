@@ -54,22 +54,30 @@ export const RecordingStateToast = () => {
   const isRecording = useIsRecording()
 
   const key = useMemo(() => {
-    if (!metadata?.recording_status || !metadata?.recording_mode) {
-      return undefined
+    if (
+      metadata?.recording_status &&
+      metadata?.recording_mode &&
+      (isScreenRecordingStarting || isScreenRecordingStarted)
+    ) {
+      let status = metadata.recording_status
+      if (isScreenRecordingStarted && !isRecording) {
+        status = 'starting'
+      }
+      return `${metadata.recording_mode}.${status}`
     }
 
-    if (!isStarting && !isStarted) {
-      return undefined
+    if (metadata?.transcription_status && isTranscriptActive) {
+      return `${RecordingMode.Transcript}.${metadata.transcription_status}`
     }
 
-    let status = metadata.recording_status
-
-    if (isStarted && !isRecording) {
-      status = 'starting'
-    }
-
-    return `${metadata.recording_mode}.${status}`
-  }, [metadata, isStarted, isStarting, isRecording])
+    return undefined
+  }, [
+    metadata,
+    isRecording,
+    isScreenRecordingStarted,
+    isScreenRecordingStarting,
+    isTranscriptActive,
+  ])
 
   // Update screen reader message only when the key actually changes
   // This prevents duplicate announcements caused by re-renders
