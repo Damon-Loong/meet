@@ -100,6 +100,7 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr
     llm_model: str
     summary_output_language: str = "zh-CN"
+    document_timezone: str = "Asia/Shanghai"
     default_context_language: str = "en"
 
     # Transcription processing

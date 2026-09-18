@@ -220,7 +220,11 @@ def transcribe_audio(
 
 
 def resolve_speaker_identities_and_apply_to(
-    *, transcription: WhisperXResponse, recording_metadata: RecordingMetadata, task_id
+    *,
+    transcription: WhisperXResponse,
+    recording_metadata: RecordingMetadata,
+    task_id,
+    participant_metadata: dict | None = None,
 ) -> WhisperXResponse:
     """Assign users to detected speakers and rewrite the transcriptions.
 
@@ -237,7 +241,7 @@ def resolve_speaker_identities_and_apply_to(
 
     logger.debug("Running resolve_speaker_identities")
     try:
-        metadata = file_service.read_cloud_storage_json(
+        metadata = participant_metadata or file_service.read_cloud_storage_json(
             recording_metadata.cloud_storage_url
         )
         speaker_mapping = resolve_speaker_identities(
@@ -274,6 +278,9 @@ def format_transcript(
     language: str,
     download_link: str | None,
     form_link: str | None,
+    title: str | None = None,
+    recording_metadata: RecordingMetadata | None = None,
+    participant_metadata: dict | None = None,
 ) -> str:
     """Format a transcription into readable content with a title.
 
@@ -289,6 +296,9 @@ def format_transcript(
         transcription,
         download_link=download_link,
         form_link=form_link,
+        title=title,
+        recording_metadata=recording_metadata,
+        participant_metadata=participant_metadata,
     )
 
 
@@ -500,6 +510,15 @@ def process_audio_transcribe_v2_task(
         )
         return failure_payload.model_dump()
 
+    participant_metadata = None
+    if payload.metadata is not None:
+        try:
+            participant_metadata = file_service.read_cloud_storage_json(
+                payload.metadata.cloud_storage_url
+            )
+        except Exception as exc:
+            logger.warning("Unable to read meeting metadata: %s", exc)
+
     # Assign speakers and rewrite transcription/diarization output
     if settings.is_resolve_speaker_identities_enabled and payload.metadata is not None:
         try:
@@ -507,6 +526,7 @@ def process_audio_transcribe_v2_task(
                 transcription=transcription_res,
                 recording_metadata=payload.metadata,
                 task_id=job_id,
+                participant_metadata=participant_metadata,
             )
         except Exception as e:
             logger.error(f"Failed to resolve speaker identities, skipping: {e}")
@@ -518,6 +538,9 @@ def process_audio_transcribe_v2_task(
         payload.language,
         transcript_config.download_link if transcript_config else None,
         transcript_config.form_link if transcript_config else None,
+        title=transcript_config.title if transcript_config else None,
+        recording_metadata=payload.metadata,
+        participant_metadata=participant_metadata,
     )
 
     should_push_to_docs = _should_push_to_docs(payload)
