@@ -284,9 +284,9 @@ class NotificationService:
             "owner_id": str(owner_access.user.id),
             "recording_filename": recording.key,
             "metadata_filename": metadata_filename,
-            "email": owner_access.user.email,
-            "sub": owner_access.user.sub,
-            "room": recording.room.name,
+            "email": notification_email,
+            "sub": owner_sub,
+            "room": recording.room.topic or recording.room.name,
             "language": recording.options.get("language"),
             "owner_timezone": str(owner_access.user.timezone),
             "download_link": f"{get_recording_download_base_url()}/{recording.id}",
@@ -349,6 +349,13 @@ class NotificationService:
             logger.error("No owner found for recording %s", recording.id)
             return False
 
+        owner = owner_access.user
+        notification_email = owner.email or owner.admin_email
+        if not notification_email:
+            logger.error("No notification email found for recording %s", recording.id)
+            return False
+        owner_sub = str(owner.sub or owner.id)
+
         started_at, ended_at = async_to_sync(
             NotificationService._get_recording_timestamps
         )(recording.worker_id)
@@ -359,20 +366,22 @@ class NotificationService:
             if (form_base_url and metadata_filename is not None)
             else None
         )
-        metadata_payload = {
-            "cloud_storage_url": (
-                generate_download_s3_url(
-                    metadata_filename,
-                    expires_in=settings.SUMMARY_SERVICE_CLOUD_STORAGE_SIGNED_URL_EXPIRY_SECONDS,
-                    override_domain=False,
-                )
-                if metadata_filename
-                else None
-            ),
-            "started_at": started_at.isoformat(),
-            "ended_at": ended_at.isoformat(),
-            "participants": recording.options.get("participants", []),
-        }
+        metadata_payload = None
+        if started_at and ended_at:
+            metadata_payload = {
+                "cloud_storage_url": (
+                    generate_download_s3_url(
+                        metadata_filename,
+                        expires_in=settings.SUMMARY_SERVICE_CLOUD_STORAGE_SIGNED_URL_EXPIRY_SECONDS,
+                        override_domain=False,
+                    )
+                    if metadata_filename
+                    else None
+                ),
+                "started_at": started_at.isoformat(),
+                "ended_at": ended_at.isoformat(),
+                "participants": recording.options.get("participants", []),
+            }
 
         payload = {
             "user_sub": owner_sub,

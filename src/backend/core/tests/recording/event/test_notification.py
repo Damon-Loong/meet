@@ -444,7 +444,7 @@ def test_notify_summary_service_uses_admin_email_and_user_id_fallback(
         email=None,
         sub=None,
         admin_email="local-owner@test.com",
-        language="zh-hans",
+        language="en-us",
         timezone="Asia/Shanghai",
     )
     factories.UserRecordingAccessFactory(
