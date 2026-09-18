@@ -53,3 +53,14 @@ def test_falls_back_to_detected_speakers_without_metadata():
 
     assert "发言人 02" in content
     assert "| 参会人数 | 1 人 |" in content
+
+
+def test_parses_moss_speaker_prefix_and_uses_only_participant_name():
+    formatter = TranscriptFormatter(STRINGS)
+    content = formatter.format(
+        {"segments": [{"start": 4, "speaker": None, "text": "[S01] 你好"}]},
+        participant_metadata={"participants": [{"name": "张三"}]},
+    )
+
+    assert "**[00:00:04] 张三：** 你好" in content
+    assert "[S01]" not in content

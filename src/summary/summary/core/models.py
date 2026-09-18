@@ -1,6 +1,7 @@
 """Models for the API & Celery tasks creation."""
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import AwareDatetime, BaseModel, EmailStr, Field, field_validator
 
@@ -24,12 +25,18 @@ class SharedV2TaskCreation(BaseModel):
 class RecordingMetadata(BaseModel):
     """Model for recording metadata."""
 
-    cloud_storage_url: Url = Field(
+    cloud_storage_url: Url | None = Field(
+        default=None,
         title="Cloud Storage URL",
         description="The URL of the metadata file for speaker assignment.",
     )
     started_at: AwareDatetime = Field(title="Start time of the recording to transcribe")
     ended_at: AwareDatetime = Field(title="End time of the recording to transcribe")
+    participants: list[dict[str, Any]] = Field(
+        default_factory=list,
+        title="Participants",
+        description="Participant identities captured by Meet webhooks.",
+    )
 
 
 class PushToDocsBaseConfig(BaseModel):

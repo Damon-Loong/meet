@@ -241,9 +241,14 @@ def resolve_speaker_identities_and_apply_to(
 
     logger.debug("Running resolve_speaker_identities")
     try:
-        metadata = participant_metadata or file_service.read_cloud_storage_json(
-            recording_metadata.cloud_storage_url
-        )
+        if participant_metadata:
+            metadata = participant_metadata
+        elif recording_metadata.cloud_storage_url:
+            metadata = file_service.read_cloud_storage_json(
+                recording_metadata.cloud_storage_url
+            )
+        else:
+            return transcription
         speaker_mapping = resolve_speaker_identities(
             metadata,
             transcription.model_dump(),
@@ -512,15 +517,25 @@ def process_audio_transcribe_v2_task(
 
     participant_metadata = None
     if payload.metadata is not None:
-        try:
-            participant_metadata = file_service.read_cloud_storage_json(
-                payload.metadata.cloud_storage_url
-            )
-        except Exception as exc:
-            logger.warning("Unable to read meeting metadata: %s", exc)
+        participant_metadata = {"participants": payload.metadata.participants}
+        if payload.metadata.cloud_storage_url:
+            try:
+                collected_metadata = file_service.read_cloud_storage_json(
+                    payload.metadata.cloud_storage_url
+                )
+                collected_metadata.setdefault(
+                    "participants", payload.metadata.participants
+                )
+                participant_metadata = collected_metadata
+            except Exception as exc:
+                logger.warning("Unable to read meeting metadata: %s", exc)
 
     # Assign speakers and rewrite transcription/diarization output
-    if settings.is_resolve_speaker_identities_enabled and payload.metadata is not None:
+    if (
+        settings.is_resolve_speaker_identities_enabled
+        and payload.metadata is not None
+        and payload.metadata.cloud_storage_url
+    ):
         try:
             transcription_res = resolve_speaker_identities_and_apply_to(
                 transcription=transcription_res,

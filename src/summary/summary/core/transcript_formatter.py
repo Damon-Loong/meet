@@ -52,10 +52,11 @@ class TranscriptFormatter:
 
         if not segments:
             transcript = self._locale.empty_transcription
-        else:
-            transcript = self._remove_hallucinations(self._format_speaker(segments))
-
         participants = self._get_participants(participant_metadata, segments or [])
+        if segments:
+            transcript = self._remove_hallucinations(
+                self._format_speaker(segments, participants)
+            )
         content = self._format_document(
             title=title,
             transcript=transcript,
@@ -75,17 +76,28 @@ class TranscriptFormatter:
             content = content.replace(pattern, replacement)
         return content
 
-    def _format_speaker(self, segments) -> str:
+    def _format_speaker(self, segments, participants: list[str]) -> str:
         """Format every segment on its own timestamped line."""
         lines = []
         for segment in segments:
-            speaker = self._display_speaker(segment.get("speaker"))
             text = segment.get("text", "").strip()
+            raw_speaker = segment.get("speaker")
+            prefix = re.match(r"^\s*\[([^\]]+)\]\s*", text)
+            if prefix and not raw_speaker:
+                raw_speaker = prefix.group(1)
+                text = text[prefix.end() :].strip()
+            speaker = self._display_speaker(raw_speaker)
+            if len(participants) == 1 and self._is_generic_speaker(speaker):
+                speaker = participants[0]
             if text:
                 timestamp = self._format_offset(segment.get("start"))
                 lines.append(f"- **[{timestamp}] {speaker}：** {text}")
 
         return "\n\n".join(lines)
+
+    @staticmethod
+    def _is_generic_speaker(speaker: str) -> bool:
+        return speaker == "未知发言人" or speaker.startswith("发言人 ")
 
     @staticmethod
     def _format_offset(value) -> str:
@@ -118,7 +130,13 @@ class TranscriptFormatter:
                 names.append(str(name))
         if not names:
             for segment in segments:
-                name = self._display_speaker(segment.get("speaker"))
+                speaker = segment.get("speaker")
+                if not speaker:
+                    prefix = re.match(
+                        r"^\s*\[([^\]]+)\]", segment.get("text", "")
+                    )
+                    speaker = prefix.group(1) if prefix else None
+                name = self._display_speaker(speaker)
                 if name not in names:
                     names.append(name)
         return names

@@ -4,6 +4,7 @@
 
 import re
 import uuid
+from datetime import datetime, timezone
 from enum import Enum
 from logging import getLogger
 
@@ -100,6 +101,7 @@ class LiveKitEventsService:
             "egress_ended": self._handle_egress_ended,
             "room_started": self._handle_room_started,
             "room_finished": self._handle_room_finished,
+            "participant_joined": self._handle_participant_joined,
             "participant_left": self._handle_participant_left,
         }
 
@@ -192,6 +194,25 @@ class LiveKitEventsService:
             raise ActionFailedError(
                 f"Recording with worker ID {data.egress_info.egress_id} does not exist"
             ) from err
+
+        file_results = getattr(data.egress_info, "file_results", None) or []
+        if file_results:
+            file_result = file_results[0]
+
+            def _ns_to_iso(value):
+                if not value:
+                    return None
+                return datetime.fromtimestamp(
+                    value / 1e9, tz=timezone.utc
+                ).isoformat()
+
+            recording.options["recording_started_at"] = _ns_to_iso(
+                getattr(file_result, "started_at", None)
+            )
+            recording.options["recording_ended_at"] = _ns_to_iso(
+                getattr(file_result, "ended_at", None)
+            )
+            recording.save(update_fields=["options"])
 
         try:
             room_name = str(recording.room.id)
@@ -381,3 +402,36 @@ class LiveKitEventsService:
         if not identity:
             return
         self.presence_cache.clear(data.room.name, identity)
+
+    @staticmethod
+    def _handle_participant_joined(data):
+        """Persist participant names for automatic meeting transcripts."""
+        try:
+            room_id = uuid.UUID(data.room.name)
+        except (ValueError, TypeError):
+            return
+
+        recording = (
+            models.Recording.objects.filter(
+                room_id=room_id,
+                status__in=[
+                    models.RecordingStatusChoices.INITIATED,
+                    models.RecordingStatusChoices.ACTIVE,
+                ],
+                options__automatic=True,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if recording is None:
+            return
+
+        identity = getattr(data.participant, "identity", "")
+        name = getattr(data.participant, "name", "") or identity
+        if not identity and not name:
+            return
+
+        participants = recording.options.setdefault("participants", [])
+        if not any(item.get("identity") == identity for item in participants):
+            participants.append({"identity": identity, "name": name})
+            recording.save(update_fields=["options"])

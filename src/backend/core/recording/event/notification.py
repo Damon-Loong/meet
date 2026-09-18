@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.conf import settings
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
+from django.utils import timezone as django_timezone
 from django.utils.translation import get_language, gettext, override
 from django.utils.translation import gettext_lazy as _
 
@@ -258,6 +259,20 @@ class NotificationService:
             NotificationService._get_recording_timestamps
         )(recording.worker_id)
 
+        def _stored_datetime(key):
+            value = recording.options.get(key)
+            if not value:
+                return None
+            try:
+                return datetime.fromisoformat(value)
+            except (TypeError, ValueError):
+                return None
+
+        started_at = started_at or _stored_datetime("recording_started_at")
+        ended_at = ended_at or _stored_datetime("recording_ended_at")
+        started_at = started_at or recording.created_at
+        ended_at = ended_at or django_timezone.now()
+
         payload = {
             "owner_id": str(owner_access.user.id),
             "recording_filename": recording.key,
@@ -337,17 +352,20 @@ class NotificationService:
             if (form_base_url and metadata_filename is not None)
             else None
         )
-        metadata_payload = None
-        if started_at and ended_at and metadata_filename:
-            metadata_payload = {
-                "cloud_storage_url": generate_download_s3_url(
+        metadata_payload = {
+            "cloud_storage_url": (
+                generate_download_s3_url(
                     metadata_filename,
                     expires_in=settings.SUMMARY_SERVICE_CLOUD_STORAGE_SIGNED_URL_EXPIRY_SECONDS,
                     override_domain=False,
-                ),
-                "started_at": started_at.isoformat(),
-                "ended_at": ended_at.isoformat(),
-            }
+                )
+                if metadata_filename
+                else None
+            ),
+            "started_at": started_at.isoformat(),
+            "ended_at": ended_at.isoformat(),
+            "participants": recording.options.get("participants", []),
+        }
 
         payload = {
             "user_sub": owner_access.user.sub,
