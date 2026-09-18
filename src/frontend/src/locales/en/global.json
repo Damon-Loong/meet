@@ -56,7 +56,11 @@
   },
   "skipLink": "Skip to main content",
   "clipboardContent": {
-    "url": "To join the video conference, click on this link: {{roomUrl}}",
+    "invitation": "{{inviter}} invites you to an AfB Meet meeting",
+    "defaultInviter": "The meeting host",
+    "subject": "Meeting subject: {{subject}}",
+    "startTime": "Start time: {{startTime}} (GMT+08:00) China Standard Time - Beijing",
+    "url": "Join the meeting: {{roomUrl}}",
     "numberAndPin": "To join by phone, dial {{phoneNumber}} and enter this code: {{pinCode}}"
   }
 }

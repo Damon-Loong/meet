@@ -110,6 +110,13 @@
       "pinCode": "Code:"
     }
   },
+  "copyMeetingInfoDialog": {
+    "title": "Copy meeting information",
+    "description": "Add an optional meeting subject, or copy without one.",
+    "subjectLabel": "Meeting subject (optional)",
+    "cancel": "Cancel",
+    "copy": "Copy"
+  },
   "pagination": {
     "label": "Participants pages",
     "count": "{{currentPage}} of {{totalPageCount}}",

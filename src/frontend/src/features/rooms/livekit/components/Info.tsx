@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { VStack } from '@/styled-system/jsx'
 import { css } from '@/styled-system/css'
 import { RiCheckLine, RiFileCopyLine } from '@remixicon/react'
@@ -9,8 +9,10 @@ import { useRoomData } from '../hooks/useRoomData'
 import { formatPinCode } from '../../utils/telephony'
 import { useTelephony } from '../hooks/useTelephony'
 import { useCopyRoomToClipboard } from '../hooks/useCopyRoomToClipboard'
+import { CopyMeetingInfoDialog } from '../../components/CopyMeetingInfoDialog'
 
 export const Info = () => {
+  const [isCopyDialogOpen, setIsCopyDialogOpen] = useState(false)
   const { t } = useTranslation('rooms', { keyPrefix: 'info' })
 
   const data = useRoomData()
@@ -70,7 +72,7 @@ export const Info = () => {
           size="sm"
           variant={isCopied ? 'success' : 'tertiaryText'}
           aria-label={t('roomInformation.button.ariaLabel')}
-          onPress={copyRoomToClipboard}
+          onPress={() => setIsCopyDialogOpen(true)}
           data-attr="copy-info-sidepannel"
           style={{
             marginLeft: '-8px',
@@ -97,6 +99,11 @@ export const Info = () => {
           )}
         </Button>
       </VStack>
+      <CopyMeetingInfoDialog
+        isOpen={isCopyDialogOpen}
+        onOpenChange={setIsCopyDialogOpen}
+        onCopy={copyRoomToClipboard}
+      />
     </Div>
   )
 }

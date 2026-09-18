@@ -17,6 +17,7 @@ import { ApiAccessLevel } from '@/features/rooms/api/ApiRoom'
 import { useTelephony } from '@/features/rooms/livekit/hooks/useTelephony'
 import { formatPinCode } from '@/features/rooms/utils/telephony'
 import { useCopyRoomToClipboard } from '@/features/rooms/livekit/hooks/useCopyRoomToClipboard'
+import { CopyMeetingInfoDialog } from './CopyMeetingInfoDialog'
 
 // fixme - extract in a proper primitive this dialog without overlay
 const StyledRACDialog = styled(Dialog, {
@@ -41,6 +42,7 @@ const StyledRACDialog = styled(Dialog, {
 
 export const InviteDialog = ({ mode }: { mode: 'join' | 'create' }) => {
   const [showInviteDialog, setShowInviteDialog] = useState(mode === 'create')
+  const [isCopyDialogOpen, setIsCopyDialogOpen] = useState(false)
 
   const { t } = useTranslation('rooms', { keyPrefix: 'shareDialog' })
 
@@ -148,7 +150,7 @@ export const InviteDialog = ({ mode }: { mode: 'join' | 'create' }) => {
               style={{
                 justifyContent: 'start',
               }}
-              onPress={copyRoomToClipboard}
+              onPress={() => setIsCopyDialogOpen(true)}
               data-attr="share-dialog-copy"
             >
               {isCopied ? (
@@ -176,7 +178,7 @@ export const InviteDialog = ({ mode }: { mode: 'join' | 'create' }) => {
             variant={isCopied ? 'success' : 'tertiary'}
             fullWidth
             aria-label={isCopied ? t('copied') : t('copy')}
-            onPress={copyRoomToClipboard}
+            onPress={() => setIsCopyDialogOpen(true)}
             data-attr="share-dialog-copy"
           >
             {isCopied ? (
@@ -215,6 +217,11 @@ export const InviteDialog = ({ mode }: { mode: 'join' | 'create' }) => {
           </HStack>
         )}
       </VStack>
+      <CopyMeetingInfoDialog
+        isOpen={isCopyDialogOpen}
+        onOpenChange={setIsCopyDialogOpen}
+        onCopy={copyRoomToClipboard}
+      />
     </StyledRACDialog>
   )
 }

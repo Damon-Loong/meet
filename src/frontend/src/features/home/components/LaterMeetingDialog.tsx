@@ -102,7 +102,7 @@ export const LaterMeetingDialog = ({
                 style={{
                   justifyContent: 'start',
                 }}
-                onPress={copyRoomToClipboard}
+                onPress={() => copyRoomToClipboard()}
                 data-attr="later-dialog-copy"
               >
                 {isCopied ? (
@@ -134,7 +134,7 @@ export const LaterMeetingDialog = ({
               style={{
                 justifyContent: 'start',
               }}
-              onPress={copyRoomToClipboard}
+              onPress={() => copyRoomToClipboard()}
               onHoverChange={setIsHovered}
               data-attr="later-dialog-copy"
             >
