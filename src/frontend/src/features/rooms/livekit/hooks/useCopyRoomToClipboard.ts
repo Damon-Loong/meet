@@ -43,7 +43,7 @@ export const useCopyRoomToClipboard = (room: ApiRoom | undefined) => {
     return telephony.enabled && room?.pin_code
   }, [telephony.enabled, room])
 
-  const copyRoomToClipboard = async (subject = '') => {
+  const copyRoomToClipboard = async () => {
     try {
       if (!roomUrl || !room) return
 
@@ -56,11 +56,11 @@ export const useCopyRoomToClipboard = (room: ApiRoom | undefined) => {
         hour: '2-digit',
         minute: '2-digit',
         hour12: false,
-      }).format(new Date())
+      }).format(room.created_at ? new Date(room.created_at) : new Date())
 
       const content = [
         t('invitation', { inviter }),
-        subject ? t('subject', { subject }) : undefined,
+        t('subject', { subject: room.topic || room.name }),
         t('startTime', { startTime }),
         t('url', { roomUrl }),
         hasTelephonyInfo

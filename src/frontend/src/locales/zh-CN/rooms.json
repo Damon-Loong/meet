@@ -110,13 +110,6 @@
       "pinCode": "会议码："
     }
   },
-  "copyMeetingInfoDialog": {
-    "title": "复制会议信息",
-    "description": "可填写会议主题，留空也可以直接复制。",
-    "subjectLabel": "会议主题（选填）",
-    "cancel": "取消",
-    "copy": "复制"
-  },
   "pagination": {
     "label": "参会者分页",
     "count": "第 {{currentPage}} 页，共 {{totalPageCount}} 页",

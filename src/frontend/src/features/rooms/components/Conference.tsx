@@ -96,7 +96,7 @@ export const Conference = ({
         username: username,
       }).catch((error) => {
         if (error.statusCode == '404') {
-          createRoom({ slug: roomId, username })
+          createRoom({ slug: roomId, topic: roomId, username })
         }
       }),
     retry: false,

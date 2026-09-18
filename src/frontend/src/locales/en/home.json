@@ -18,6 +18,16 @@
     "laterOption": "Create a meeting for a later date",
     "instantOption": "Start an instant meeting"
   },
+  "createMeetingDialog": {
+    "instantTitle": "Create a meeting",
+    "laterTitle": "Create a meeting for later",
+    "description": "The meeting subject will appear in invitations, recordings, and administration.",
+    "topicLabel": "Meeting subject",
+    "cancel": "Cancel",
+    "startNow": "Start now",
+    "createLater": "Create and copy",
+    "creating": "Creating…"
+  },
   "laterMeetingDialog": {
     "heading": "Your connection details",
     "description": "Share this information with the guests. They will be able to join the meeting without needing to sign in. This meeting is permanent and can be reused.",

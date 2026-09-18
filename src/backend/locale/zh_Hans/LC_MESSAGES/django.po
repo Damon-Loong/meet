@@ -31,6 +31,9 @@ msgstr "会议室"
 msgid "Rooms"
 msgstr "会议室"
 
+msgid "Meeting subject"
+msgstr "会议主题"
+
 msgid "Recording"
 msgstr "录制"
 

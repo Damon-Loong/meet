@@ -402,6 +402,12 @@ class Room(Resource):
     """Model for one room"""
 
     name = models.CharField(max_length=500)
+    topic = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name=_("Meeting subject"),
+    )
     resource = models.OneToOneField(
         Resource,
         on_delete=models.CASCADE,

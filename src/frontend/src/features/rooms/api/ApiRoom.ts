@@ -29,6 +29,8 @@ export type ApiResourceAccess = {
 export type ApiRoom = {
   id: string
   name: string
+  topic: string
+  created_at: string
   slug: string
   pin_code?: string
   is_administrable: boolean

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getRouteUrl } from '@/navigation/getRouteUrl'
 import { Bold, Button, Dialog, type DialogProps, P, Text } from '@/primitives'
@@ -32,6 +32,14 @@ export const LaterMeetingDialog = ({
     isRoomUrlCopied,
     copyRoomUrlToClipboard,
   } = useCopyRoomToClipboard(room || undefined)
+  const automaticallyCopiedRoomId = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (room && automaticallyCopiedRoomId.current !== room.id) {
+      automaticallyCopiedRoomId.current = room.id
+      copyRoomToClipboard()
+    }
+  }, [room, copyRoomToClipboard])
 
   return (
     <Dialog isOpen={!!room} {...dialogProps} title={t('heading')}>

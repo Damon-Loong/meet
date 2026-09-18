@@ -281,8 +281,8 @@ class RoomAdmin(admin.ModelAdmin):
     """Room admin interface declaration."""
 
     inlines = (ResourceAccessInline,)
-    search_fields = ["name", "slug", "=id"]
-    list_display = ["name", "slug", "access_level", "get_owner", "created_at"]
+    search_fields = ["topic", "name", "slug", "=id"]
+    list_display = ["topic", "name", "slug", "access_level", "get_owner", "created_at"]
     list_filter = ["access_level", "created_at"]
     readonly_fields = ["id", "created_at", "updated_at"]
 
@@ -409,6 +409,7 @@ class RecordingAdmin(admin.ModelAdmin):
         "status",
         "=id",
         "worker_id",
+        "room__topic",
         "room__slug",
         "=room__id",
         "accesses__user__email",
@@ -417,6 +418,7 @@ class RecordingAdmin(admin.ModelAdmin):
         "id",
         "status",
         "mode",
+        "meeting_subject",
         "room",
         "get_owner",
         "created_at",
@@ -437,6 +439,11 @@ class RecordingAdmin(admin.ModelAdmin):
         "recording_file",
     )
     actions = [resend_notification, mark_as_failed_to_stop]
+
+    @admin.display(description=_("Meeting subject"), ordering="room__topic")
+    def meeting_subject(self, obj):
+        """Display the subject stored on the related room."""
+        return obj.room.topic or obj.room.name
 
     def get_urls(self):
         """Add a staff-only endpoint that streams a recording from private storage."""

@@ -18,6 +18,16 @@
     "laterOption": "创建稍后使用的会议",
     "instantOption": "立即开始会议"
   },
+  "createMeetingDialog": {
+    "instantTitle": "创建会议",
+    "laterTitle": "创建稍后使用的会议",
+    "description": "会议主题将显示在邀请信息、录制记录和管理后台中。",
+    "topicLabel": "会议主题",
+    "cancel": "取消",
+    "startNow": "立即开始",
+    "createLater": "创建并复制",
+    "creating": "正在创建…"
+  },
   "laterMeetingDialog": {
     "heading": "会议信息",
     "description": "把这些信息分享给参会者。他们无需登录即可加入。此会议链接长期有效，可重复使用。",

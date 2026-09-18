@@ -139,7 +139,7 @@ class ListRoomSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Room
-        fields = ["id", "name", "slug", "access_level"]
+        fields = ["id", "name", "topic", "slug", "access_level"]
         read_only_fields = ["id", "slug"]
 
 
@@ -148,8 +148,24 @@ class RoomSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Room
-        fields = ["id", "name", "slug", "configuration", "access_level", "pin_code"]
-        read_only_fields = ["id", "slug", "pin_code"]
+        fields = [
+            "id",
+            "name",
+            "topic",
+            "slug",
+            "configuration",
+            "access_level",
+            "pin_code",
+            "created_at",
+        ]
+        read_only_fields = ["id", "slug", "pin_code", "created_at"]
+
+    def validate_topic(self, value):
+        """Reject whitespace-only meeting subjects."""
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Meeting subject is required.")
+        return value
 
     def validate_configuration(self, value):
         """Validate room configuration against the RoomConfiguration schema."""

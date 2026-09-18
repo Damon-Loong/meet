@@ -5,12 +5,14 @@ import type { ApiRoom } from './ApiRoom'
 
 export interface CreateRoomParams {
   slug: string
+  topic: string
   callbackId?: string
   username?: string
 }
 
 const createRoom = ({
   slug,
+  topic,
   callbackId,
   username = '',
 }: CreateRoomParams): Promise<ApiRoom> => {
@@ -18,6 +20,7 @@ const createRoom = ({
     method: 'POST',
     body: JSON.stringify({
       name: slug,
+      topic,
       callback_id: callbackId,
     }),
   })

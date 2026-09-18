@@ -11,13 +11,35 @@ import { menuRecipe } from '@/primitives/menuRecipe'
 import { ApiRoom } from '@/features/rooms/api/ApiRoom'
 import { useSnapshot } from 'valtio'
 import { userStore } from '@/stores/user'
+import {
+  CreateMeetingDialog,
+  type MeetingCreationMode,
+} from './CreateMeetingDialog'
 
 export const CreateMeetingMenu = () => {
   const { username } = useSnapshot(userStore)
 
   const { t } = useTranslation('home')
-  const { mutateAsync: createRoom } = useCreateRoom()
+  const { mutateAsync: createRoom, isPending } = useCreateRoom()
   const [laterRoom, setLaterRoom] = useState<null | ApiRoom>(null)
+  const [creationMode, setCreationMode] = useState<MeetingCreationMode | null>(
+    null
+  )
+
+  const handleCreate = async (topic: string) => {
+    const slug = generateRoomId()
+    const data = await createRoom({ slug, topic, username })
+    setCreationMode(null)
+
+    if (creationMode === 'instant') {
+      navigateTo('room', data.slug, {
+        state: { create: true, initialRoomData: data },
+      })
+      return
+    }
+
+    setLaterRoom(data)
+  }
 
   return (
     <>
@@ -28,14 +50,7 @@ export const CreateMeetingMenu = () => {
         <RACMenu>
           <MenuItem
             className={menuRecipe({ icon: true, variant: 'light' }).item}
-            onAction={() => {
-              const slug = generateRoomId()
-              createRoom({ slug, username }).then((data) =>
-                navigateTo('room', data.slug, {
-                  state: { create: true, initialRoomData: data },
-                })
-              )
-            }}
+            onAction={() => setCreationMode('instant')}
             data-attr="create-option-instant"
           >
             <RiAddLine size={18} />
@@ -43,10 +58,7 @@ export const CreateMeetingMenu = () => {
           </MenuItem>
           <MenuItem
             className={menuRecipe({ icon: true, variant: 'light' }).item}
-            onAction={() => {
-              const slug = generateRoomId()
-              createRoom({ slug, username }).then(setLaterRoom)
-            }}
+            onAction={() => setCreationMode('later')}
             data-attr="create-option-later"
           >
             <RiLink size={18} />
@@ -54,6 +66,14 @@ export const CreateMeetingMenu = () => {
           </MenuItem>
         </RACMenu>
       </Menu>
+      <CreateMeetingDialog
+        mode={creationMode}
+        isPending={isPending}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setCreationMode(null)
+        }}
+        onCreate={handleCreate}
+      />
       <LaterMeetingDialog
         room={laterRoom}
         onOpenChange={() => setLaterRoom(null)}

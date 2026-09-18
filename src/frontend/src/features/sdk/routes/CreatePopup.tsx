@@ -45,6 +45,7 @@ const CreatePopup = () => {
         const slug = generateRoomId()
         const roomData = await createRoom({
           slug,
+          topic: slug,
           callbackId,
         })
         // Send room data back to parent window and clean up resources
