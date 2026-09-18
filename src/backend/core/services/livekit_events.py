@@ -430,6 +430,10 @@ class LiveKitEventsService:
         name = getattr(data.participant, "name", "") or identity
         if not identity and not name:
             return
+        # LiveKit Egress joins the room as an internal participant whose
+        # identity starts with "EG_". It must not appear in attendance lists.
+        if identity.upper().startswith("EG_") or name.upper().startswith("EG_"):
+            return
 
         participants = recording.options.setdefault("participants", [])
         if not any(item.get("identity") == identity for item in participants):

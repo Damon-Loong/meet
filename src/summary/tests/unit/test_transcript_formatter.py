@@ -64,3 +64,22 @@ def test_parses_moss_speaker_prefix_and_uses_only_participant_name():
 
     assert "**[00:00:04] 张三：** 你好" in content
     assert "[S01]" not in content
+
+
+def test_filters_livekit_egress_participant_and_localizes_generated_title():
+    formatter = TranscriptFormatter(STRINGS)
+    content = formatter.format(
+        {"segments": [{"start": 1, "text": "[S01] 测试"}]},
+        title='Meeting "weekly-room" on 2026-09-18 at 19:11',
+        participant_metadata={
+            "participants": [
+                {"identity": "user-1", "name": "Long"},
+                {"identity": "EG_wAhCysJZMtKo", "name": "EG_wAhCysJZMtKo"},
+            ]
+        },
+    )
+
+    assert content.startswith("# weekly-room｜会议转录")
+    assert "| 参会人数 | 1 人 |" in content
+    assert "EG_wAhCysJZMtKo" not in content
+    assert "**[00:00:01] Long：** 测试" in content

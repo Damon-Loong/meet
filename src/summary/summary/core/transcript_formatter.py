@@ -125,7 +125,12 @@ class TranscriptFormatter:
         """Return unique participant names, falling back to detected speakers."""
         names = []
         for participant in (metadata or {}).get("participants", []):
+            identity = str(participant.get("identity") or "")
             name = participant.get("name") or participant.get("identity")
+            if identity.upper().startswith("EG_") or str(name or "").upper().startswith(
+                "EG_"
+            ):
+                continue
             if name and name not in names:
                 names.append(str(name))
         if not names:
@@ -166,6 +171,12 @@ class TranscriptFormatter:
     ) -> str:
         """Build the complete Markdown meeting transcript."""
         document_title = title or "会议转录"
+        english_title = re.fullmatch(
+            r'Meeting "(.+)" on \d{4}-\d{2}-\d{2} at \d{2}:\d{2}',
+            document_title,
+        )
+        if english_title:
+            document_title = f"{english_title.group(1)}｜会议转录"
         start = getattr(recording_metadata, "started_at", None)
         end = getattr(recording_metadata, "ended_at", None)
         participant_text = "、".join(participants) if participants else "未记录"
