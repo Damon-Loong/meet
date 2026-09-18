@@ -304,6 +304,15 @@ class StartRecordingSerializer(BaseValidationOnlySerializer):
     )
 
 
+class StopRecordingSerializer(BaseValidationOnlySerializer):
+    """Validate stop recording requests."""
+
+    mode = serializers.ChoiceField(
+        choices=models.RecordingModeChoices.choices,
+        required=False,
+    )
+
+
 class RequestEntrySerializer(BaseValidationOnlySerializer):
     """Validate request entry data."""
 

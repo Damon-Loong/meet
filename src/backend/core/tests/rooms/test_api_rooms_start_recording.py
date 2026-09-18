@@ -195,6 +195,31 @@ def test_start_recording_conflict_when_already_in_progress(
     mock_worker_manager.start.assert_not_called()
 
 
+def test_start_screen_recording_while_transcript_is_active(
+    mock_worker_service_factory, mock_worker_manager, settings
+):
+    """A manual video recording can run alongside automatic transcription."""
+    settings.RECORDING_ENABLE = True
+
+    room = RoomFactory()
+    user = UserFactory()
+    room.accesses.create(user=user, role="owner")
+    Recording.objects.create(room=room, mode="transcript", status="active")
+
+    client = APIClient()
+    client.force_login(user)
+    response = client.post(
+        f"/api/v1.0/rooms/{room.id}/start-recording/",
+        {"mode": "screen_recording", "options": {"transcribe": True}},
+        format="json",
+    )
+
+    assert response.status_code == 201
+    video = Recording.objects.get(room=room, mode="screen_recording")
+    assert video.options == {"transcribe": False, "collect_metadata": False}
+    mock_worker_manager.start.assert_called_once_with(video)
+
+
 def test_start_recording_after_worker_failure_unblocks_room(
     mock_worker_service_factory, mock_worker_manager, settings
 ):
@@ -290,7 +315,11 @@ def test_start_recording_options_language_valid(
     assert response.status_code == 201
 
     recording = Recording.objects.get(room=room)
-    assert recording.options == {"language": value}
+    assert recording.options == {
+        "language": value,
+        "transcribe": False,
+        "collect_metadata": False,
+    }
 
 
 @pytest.mark.parametrize("value", ["invalid-value", "francais", "123"])
@@ -336,7 +365,7 @@ def test_start_recording_options_language_null(
 
     assert response.status_code == 201
     recording = Recording.objects.get(room=room)
-    assert recording.options == {}
+    assert recording.options == {"transcribe": False, "collect_metadata": False}
 
 
 @pytest.mark.parametrize("value", [True, 1, "y", "on", "true", "yes", "t"])
@@ -360,7 +389,7 @@ def test_start_recording_options_transcribe_valid_true(
 
     assert response.status_code == 201
     recording = Recording.objects.get(room=room)
-    assert recording.options == {"transcribe": True}
+    assert recording.options == {"transcribe": False, "collect_metadata": False}
 
 
 @pytest.mark.parametrize("value", [False, 0, "n", "off", "false", "no", "f"])
@@ -383,7 +412,7 @@ def test_start_recording_options_transcribe_valid_false(
 
     assert response.status_code == 201
     recording = Recording.objects.get(room=room)
-    assert recording.options == {"transcribe": False}
+    assert recording.options == {"transcribe": False, "collect_metadata": False}
 
 
 def test_start_recording_options_transcribe_null(
@@ -405,7 +434,7 @@ def test_start_recording_options_transcribe_null(
 
     assert response.status_code == 201
     recording = Recording.objects.get(room=room)
-    assert recording.options == {}
+    assert recording.options == {"transcribe": False, "collect_metadata": False}
 
 
 def test_start_recording_options_null(
@@ -427,7 +456,7 @@ def test_start_recording_options_null(
 
     assert response.status_code == 201
     recording = Recording.objects.get(room=room)
-    assert recording.options == {}
+    assert recording.options == {"transcribe": False, "collect_metadata": False}
 
 
 def test_start_recording_options_omitted(
@@ -449,7 +478,7 @@ def test_start_recording_options_omitted(
 
     assert response.status_code == 201
     recording = Recording.objects.get(room=room)
-    assert recording.options == {}
+    assert recording.options == {"transcribe": False, "collect_metadata": False}
 
 
 def test_start_recording_options_unknown_field_rejected(settings):
@@ -509,7 +538,11 @@ def test_start_recording_options_original_mode_valid(
 
     assert response.status_code == 201
     recording = Recording.objects.get(room=room)
-    assert recording.options == {"original_mode": value}
+    assert recording.options == {
+        "original_mode": value,
+        "transcribe": False,
+        "collect_metadata": False,
+    }
 
 
 def test_start_recording_options_original_mode_null(
@@ -531,7 +564,7 @@ def test_start_recording_options_original_mode_null(
 
     assert response.status_code == 201
     recording = Recording.objects.get(room=room)
-    assert recording.options == {}
+    assert recording.options == {"transcribe": False, "collect_metadata": False}
 
 
 def test_start_recording_options_original_mode_omitted(
@@ -553,10 +586,10 @@ def test_start_recording_options_original_mode_omitted(
 
     assert response.status_code == 201
     recording = Recording.objects.get(room=room)
-    assert recording.options == {}
+    assert recording.options == {"transcribe": False, "collect_metadata": False}
 
 
-def test_start_recording_calls_metadata_collector_start(
+def test_start_transcript_calls_metadata_collector_start(
     settings, mock_worker_service_factory, mock_worker_manager
 ):
     """Should call MetadataCollectorService.start when conditions are met."""
@@ -579,7 +612,7 @@ def test_start_recording_calls_metadata_collector_start(
         response = client.post(
             f"/api/v1.0/rooms/{room.id}/start-recording/",
             {
-                "mode": "screen_recording",
+                "mode": "transcript",
                 "options": {"transcribe": True, "collect_metadata": True},
             },
             format="json",

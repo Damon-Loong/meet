@@ -376,13 +376,17 @@ class RoomViewSet(
         mode = serializer.validated_data["mode"]
         options = serializer.validated_data.get("options")
         room = self.get_object()
+        recording_options = options.model_dump(exclude_none=True) if options else {}
+        if mode == models.RecordingModeChoices.SCREEN_RECORDING:
+            recording_options["transcribe"] = False
+            recording_options["collect_metadata"] = False
 
         try:
             with transaction.atomic():
                 recording = models.Recording.objects.create(
                     room=room,
                     mode=mode,
-                    options=options.model_dump(exclude_none=True) if options else {},
+                    options=recording_options,
                 )
                 models.RecordingAccess.objects.create(
                     user=self.request.user,
@@ -439,12 +443,22 @@ class RoomViewSet(
     def stop_room_recording(self, request, pk=None):  # pylint: disable=unused-argument
         """Stop room recording."""
 
+        serializer = serializers.StopRecordingSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         room = self.get_object()
+        filters = {
+            "room": room,
+            "status": models.RecordingStatusChoices.ACTIVE,
+        }
+        if mode := serializer.validated_data.get("mode"):
+            filters["mode"] = mode
 
         try:
-            recording = models.Recording.objects.get(
-                room=room, status=models.RecordingStatusChoices.ACTIVE
-            )
+            recording = models.Recording.objects.get(**filters)
+        except models.Recording.MultipleObjectsReturned as e:
+            raise drf_exceptions.ValidationError(
+                {"mode": "Recording mode is required when multiple recordings are active."}
+            ) from e
         except models.Recording.DoesNotExist as e:
             raise drf_exceptions.NotFound(
                 "No active recording found for this room."

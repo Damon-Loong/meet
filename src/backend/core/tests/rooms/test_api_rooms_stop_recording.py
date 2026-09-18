@@ -181,3 +181,29 @@ def test_stop_recording_success(
 
     # Verify the recording still exists
     assert Recording.objects.count() == 1
+
+
+def test_stop_recording_by_mode_when_two_are_active(
+    mock_worker_service_factory, mock_worker_manager, settings
+):
+    """Stopping video must not stop the concurrent automatic transcript."""
+    settings.RECORDING_ENABLE = True
+    room = RoomFactory()
+    user = UserFactory()
+    room.accesses.create(user=user, role="owner")
+    transcript = RecordingFactory(room=room, status="active", mode="transcript")
+    video = RecordingFactory(room=room, status="active", mode="screen_recording")
+
+    client = APIClient()
+    client.force_login(user)
+    response = client.post(
+        f"/api/v1.0/rooms/{room.id}/stop-recording/",
+        {"mode": "screen_recording"},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    mock_worker_service_factory.assert_called_once_with(mode="screen_recording")
+    mock_worker_manager.stop.assert_called_once_with(video)
+    transcript.refresh_from_db()
+    assert transcript.status == "active"

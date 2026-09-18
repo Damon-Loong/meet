@@ -46,16 +46,28 @@ def test_models_recording_default_status():
     assert recording.status == RecordingStatusChoices.INITIATED
 
 
-def test_models_recording_unique_initiated_or_active_per_room():
-    """Only one initiated or active recording should be allowed per room."""
+def test_models_recording_unique_initiated_or_active_per_room_and_mode():
+    """Only one active recording per mode should be allowed in a room."""
     room = RoomFactory()
-    RecordingFactory(room=room, status=RecordingStatusChoices.ACTIVE)
+    RecordingFactory(
+        room=room,
+        status=RecordingStatusChoices.ACTIVE,
+        mode=RecordingModeChoices.TRANSCRIPT,
+    )
 
     with pytest.raises(ValidationError):
-        RecordingFactory(room=room, status=RecordingStatusChoices.ACTIVE)
+        RecordingFactory(
+            room=room,
+            status=RecordingStatusChoices.ACTIVE,
+            mode=RecordingModeChoices.TRANSCRIPT,
+        )
 
-    with pytest.raises(ValidationError):
-        RecordingFactory(room=room, status=RecordingStatusChoices.INITIATED)
+    RecordingFactory(
+        room=room,
+        status=RecordingStatusChoices.ACTIVE,
+        mode=RecordingModeChoices.SCREEN_RECORDING,
+    )
+    assert room.recordings.count() == 2
 
 
 def test_models_recording_multiple_finished_allowed():

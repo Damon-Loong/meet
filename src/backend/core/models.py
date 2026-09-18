@@ -646,14 +646,14 @@ class Recording(BaseModel):
         verbose_name_plural = _("Recordings")
         constraints = [
             models.UniqueConstraint(
-                fields=["room"],
+                fields=["room", "mode"],
                 condition=models.Q(
                     status__in=[
                         RecordingStatusChoices.ACTIVE,
                         RecordingStatusChoices.INITIATED,
                     ]
                 ),
-                name="unique_initiated_or_active_recording_per_room",
+                name="unique_active_recording_per_room_and_mode",
             )
         ]
 

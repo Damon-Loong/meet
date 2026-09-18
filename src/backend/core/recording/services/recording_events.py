@@ -33,6 +33,9 @@ class RecordingEventsService:
     def handle_update(recording: Recording, egress_status):
         """Handle egress status updates and sync recording state to room metadata."""
 
+        if recording.options.get("automatic", False):
+            return
+
         room_name = str(recording.room.id)
 
         status_mapping = {

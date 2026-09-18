@@ -214,18 +214,19 @@ class LiveKitEventsService:
             )
             recording.save(update_fields=["options"])
 
-        try:
-            room_name = str(recording.room.id)
-            RoomManagement.update_metadata(
-                room_name, remove_keys=["recording_mode", "recording_status"]
-            )
-        except RoomNotFoundException:
-            logger.info(
-                "LiveKit room %s no longer exists, skipping metadata update",
-                room_name,
-            )
-        except RoomManagementException as e:
-            logger.exception("Failed to update room's metadata: %s", e)
+        if not recording.options.get("automatic", False):
+            try:
+                room_name = str(recording.room.id)
+                RoomManagement.update_metadata(
+                    room_name, remove_keys=["recording_mode", "recording_status"]
+                )
+            except RoomNotFoundException:
+                logger.info(
+                    "LiveKit room %s no longer exists, skipping metadata update",
+                    room_name,
+                )
+            except RoomManagementException as e:
+                logger.exception("Failed to update room's metadata: %s", e)
 
         if recording.options.get("metadata_collector_dispatch_id", None) is not None:
             try:

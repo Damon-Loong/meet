@@ -8,7 +8,6 @@ import {
   useHasRecordingAccess,
   useRecordingStatuses,
 } from '@/features/recording'
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -21,8 +20,6 @@ import { NoAccessView } from './NoAccessView'
 import { ControlsButton } from './ControlsButton'
 import { RowWrapper } from './RowWrapper'
 import { VStack } from '@/styled-system/jsx'
-import { Checkbox } from '@/primitives/Checkbox'
-import { useTranscriptionLanguage } from '@/features/settings'
 import { useMutateRecording } from '../hooks/useMutateRecording'
 import { useSidePanel } from '@/features/rooms/livekit/hooks/useSidePanel'
 import { useIsAdminOrOwner } from '@/features/rooms/livekit/hooks/useIsAdminOrOwner'
@@ -36,8 +33,6 @@ export const ScreenRecordingSidePanel = () => {
   const keyPrefix = 'screenRecording'
   const { t } = useTranslation('rooms', { keyPrefix })
 
-  const [includeTranscript, setIncludeTranscript] = useState(false)
-
   const isAdminOrOwner = useIsAdminOrOwner()
 
   const hasScreenRecordingAccess = useHasRecordingAccess(
@@ -46,9 +41,6 @@ export const ScreenRecordingSidePanel = () => {
   )
 
   const { notifyParticipants } = useNotifyParticipants()
-  const { selectedLanguageKey, isLanguageSetToAuto } =
-    useTranscriptionLanguage()
-
   const roomId = useRoomId()
 
   const { startRecording, isPendingToStart, stopRecording, isPendingToStop } =
@@ -73,8 +65,10 @@ export const ScreenRecordingSidePanel = () => {
     }
     try {
       if (statuses.isStarted || statuses.isStarting) {
-        setIncludeTranscript(false)
-        await stopRecording({ id: roomId })
+        await stopRecording({
+          id: roomId,
+          mode: RecordingMode.ScreenRecording,
+        })
 
         await notifyParticipants({
           type: NotificationType.ScreenRecordingStopped,
@@ -84,25 +78,17 @@ export const ScreenRecordingSidePanel = () => {
           room.localParticipant
         )
       } else {
-        const recordingOptions = {
-          ...(!isLanguageSetToAuto && {
-            language: selectedLanguageKey,
-          }),
-          ...(includeTranscript && { transcribe: true }),
-        }
-
         await startRecording({
           id: roomId,
           mode: RecordingMode.ScreenRecording,
-          options: recordingOptions,
+          options: { transcribe: false },
         })
 
         await notifyParticipants({
           type: NotificationType.ScreenRecordingStarted,
         })
         captureEvent('screen-recording-started', {
-          includeTranscript: includeTranscript,
-          language: selectedLanguageKey,
+          includeTranscript: false,
         })
       }
     } catch (error) {
@@ -182,24 +168,6 @@ export const ScreenRecordingSidePanel = () => {
         <RowWrapper iconName="mail" position="last">
           <Text variant="sm">{t('details.receiver')}</Text>
         </RowWrapper>
-
-        <div className={css({ height: '15px' })} />
-
-        <div
-          className={css({
-            width: '100%',
-            marginLeft: '20px',
-          })}
-        >
-          <Checkbox
-            size="sm"
-            isSelected={includeTranscript}
-            onChange={setIncludeTranscript}
-            isDisabled={statuses.isActive || isPendingToStart}
-          >
-            <Text variant="sm">{t('details.transcription')}</Text>
-          </Checkbox>
-        </div>
       </VStack>
       <ControlsButton
         i18nKeyPrefix={keyPrefix}
