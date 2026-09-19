@@ -6,6 +6,8 @@ import type { ApiRoom } from '@/features/rooms/api/ApiRoom'
 import { getRouteUrl } from '@/navigation/getRouteUrl'
 import { reportError } from '@/features/analytics/telemetry'
 import { useUser } from '@/features/auth/api/useUser'
+import { useSnapshot } from 'valtio'
+import { userStore } from '@/stores/user'
 
 const COPY_SUCCESS_TIMEOUT = 3000
 
@@ -16,6 +18,7 @@ export const useCopyRoomToClipboard = (
   const telephony = useTelephony()
   const { t } = useTranslation('global', { keyPrefix: 'clipboardContent' })
   const { user } = useUser()
+  const { username } = useSnapshot(userStore)
 
   const [isCopied, setIsCopied] = useState(false)
   const [isRoomUrlCopied, setIsRoomUrlCopied] = useState(false)
@@ -51,7 +54,11 @@ export const useCopyRoomToClipboard = (
       if (!roomUrl || !room) return
 
       const inviter =
-        user?.full_name || participantName || user?.email || t('defaultInviter')
+        user?.full_name ||
+        participantName ||
+        username ||
+        user?.email ||
+        t('defaultInviter')
       const startTime = new Intl.DateTimeFormat('zh-CN', {
         timeZone: 'Asia/Shanghai',
         year: 'numeric',
