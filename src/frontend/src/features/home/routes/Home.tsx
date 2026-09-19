@@ -9,6 +9,7 @@ import { JoinMeetingDialog } from '../components/JoinMeetingDialog'
 import { IntroSlider } from '../components/IntroSlider'
 import { MoreLink } from '../components/MoreLink'
 import { CreateMeetingMenu } from '../components/CreateMeetingMenu'
+import { ScheduledMeetingsDialog } from '../components/ScheduledMeetingsDialog'
 import { ReactNode, useEffect, useState } from 'react'
 
 import { css } from '@/styled-system/css'
@@ -193,7 +194,13 @@ const Home = () => {
               })}
             >
               {isLoggedIn ? (
-                <CreateMeetingMenu />
+                <>
+                  <CreateMeetingMenu />
+                  <DialogTrigger>
+                    <Button variant="secondary">日程会议</Button>
+                    <ScheduledMeetingsDialog />
+                  </DialogTrigger>
+                </>
               ) : (
                 <LoginButton proConnectHint={false} />
               )}
