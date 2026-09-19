@@ -450,7 +450,10 @@ def test_notify_summary_service_uses_admin_email_and_user_id_fallback(
     factories.UserRecordingAccessFactory(
         recording=recording, role=models.RoleChoices.OWNER, user=owner
     )
-    mock_get_recording_timestamps.return_value = (None, None)
+    mock_get_recording_timestamps.return_value = (
+        datetime.datetime(2026, 1, 2, 10, 30, tzinfo=datetime.timezone.utc),
+        datetime.datetime(2026, 1, 2, 11, 0, tzinfo=datetime.timezone.utc),
+    )
     mock_generate_download_s3_url.return_value = "https://storage.test/recording.ogg"
     mock_response = mock.Mock()
     mock_response.raise_for_status.return_value = None
