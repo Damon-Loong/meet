@@ -9,7 +9,10 @@ import { useUser } from '@/features/auth/api/useUser'
 
 const COPY_SUCCESS_TIMEOUT = 3000
 
-export const useCopyRoomToClipboard = (room: ApiRoom | undefined) => {
+export const useCopyRoomToClipboard = (
+  room: ApiRoom | undefined,
+  participantName?: string
+) => {
   const telephony = useTelephony()
   const { t } = useTranslation('global', { keyPrefix: 'clipboardContent' })
   const { user } = useUser()
@@ -47,7 +50,8 @@ export const useCopyRoomToClipboard = (room: ApiRoom | undefined) => {
     try {
       if (!roomUrl || !room) return
 
-      const inviter = user?.full_name || user?.email || t('defaultInviter')
+      const inviter =
+        user?.full_name || participantName || user?.email || t('defaultInviter')
       const startTime = new Intl.DateTimeFormat('zh-CN', {
         timeZone: 'Asia/Shanghai',
         year: 'numeric',

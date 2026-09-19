@@ -17,6 +17,7 @@ import { ApiAccessLevel } from '@/features/rooms/api/ApiRoom'
 import { useTelephony } from '@/features/rooms/livekit/hooks/useTelephony'
 import { formatPinCode } from '@/features/rooms/utils/telephony'
 import { useCopyRoomToClipboard } from '@/features/rooms/livekit/hooks/useCopyRoomToClipboard'
+import { useRoomContext } from '@livekit/components-react'
 
 // fixme - extract in a proper primitive this dialog without overlay
 const StyledRACDialog = styled(Dialog, {
@@ -45,6 +46,7 @@ export const InviteDialog = ({ mode }: { mode: 'join' | 'create' }) => {
   const { t } = useTranslation('rooms', { keyPrefix: 'shareDialog' })
 
   const roomData = useRoomData()
+  const liveKitRoom = useRoomContext()
   const roomUrl = roomData?.slug ? getRouteUrl('room', roomData.slug) : ''
 
   const telephony = useTelephony()
@@ -58,7 +60,7 @@ export const InviteDialog = ({ mode }: { mode: 'join' | 'create' }) => {
     copyRoomToClipboard,
     isRoomUrlCopied,
     copyRoomUrlToClipboard,
-  } = useCopyRoomToClipboard(roomData)
+  } = useCopyRoomToClipboard(roomData, liveKitRoom.localParticipant.name)
 
   if (!showInviteDialog) return null
   return (

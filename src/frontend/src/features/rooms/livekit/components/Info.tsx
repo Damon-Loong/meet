@@ -9,11 +9,13 @@ import { useRoomData } from '../hooks/useRoomData'
 import { formatPinCode } from '../../utils/telephony'
 import { useTelephony } from '../hooks/useTelephony'
 import { useCopyRoomToClipboard } from '../hooks/useCopyRoomToClipboard'
+import { useRoomContext } from '@livekit/components-react'
 
 export const Info = () => {
   const { t } = useTranslation('rooms', { keyPrefix: 'info' })
 
   const data = useRoomData()
+  const liveKitRoom = useRoomContext()
   const roomUrl = data?.slug ? getRouteUrl('room', data.slug) : ''
 
   const telephony = useTelephony()
@@ -22,7 +24,10 @@ export const Info = () => {
     return telephony?.enabled && data?.pin_code
   }, [telephony?.enabled, data?.pin_code])
 
-  const { isCopied, copyRoomToClipboard } = useCopyRoomToClipboard(data)
+  const { isCopied, copyRoomToClipboard } = useCopyRoomToClipboard(
+    data,
+    liveKitRoom.localParticipant.name
+  )
 
   return (
     <Div
