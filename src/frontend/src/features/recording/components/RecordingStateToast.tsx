@@ -41,14 +41,10 @@ export const RecordingStateToast = () => {
     isActive: isScreenRecordingActive,
   } = useRecordingStatuses(RecordingMode.ScreenRecording)
 
-  const {
-    isStarted: isTranscriptStarted,
-    isStarting: isTranscriptStarting,
-    isActive: isTranscriptActive,
-  } = useRecordingStatuses(RecordingMode.Transcript)
+  const { isStarted: isTranscriptStarted, isActive: isTranscriptActive } =
+    useRecordingStatuses(RecordingMode.Transcript)
 
   const isStarted = isScreenRecordingStarted || isTranscriptStarted
-  const isStarting = isTranscriptStarting || isScreenRecordingStarting
 
   const metadata = useRoomMetadata()
   const isRecording = useIsRecording()
