@@ -96,7 +96,6 @@ const ToolButton = ({
 export const Tools = () => {
   const { data } = useConfig()
   const {
-    openTranscript,
     openScreenRecording,
     activeSubPanelId,
     isToolsOpen,
@@ -120,10 +119,6 @@ export const Tools = () => {
     preventScroll: true,
     shouldRestoreOnClose: () => !isSidePanelOpen,
   })
-
-  const isTranscriptEnabled = useIsRecordingModeEnabled(
-    RecordingMode.Transcript
-  )
 
   const isScreenRecordingEnabled = useIsRecordingModeEnabled(
     RecordingMode.ScreenRecording
@@ -172,14 +167,6 @@ export const Tools = () => {
           </A>
         )}
       </Text>
-      {isTranscriptEnabled && (
-        <ToolButton
-          icon={<Icon name="speech_to_text" />}
-          title={t('tools.transcript.title')}
-          description={t('tools.transcript.body')}
-          onPress={() => openTranscript()}
-        />
-      )}
       {isScreenRecordingEnabled && (
         <ToolButton
           icon={<Icon name="mode_standby" />}

@@ -89,7 +89,8 @@ export const RecordingStateToast = () => {
 
   const hasScreenRecordingAccessAndActive =
     isScreenRecordingActive && hasScreenRecordingAccess
-  const hasTranscriptAccessAndActive = isTranscriptActive && hasTranscriptAccess
+  const hasTranscriptAccessAndActive =
+    isTranscriptActive && hasTranscriptAccess && !metadata?.transcription_status
 
   return (
     <>
