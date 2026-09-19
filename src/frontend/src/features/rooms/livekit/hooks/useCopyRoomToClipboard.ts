@@ -67,7 +67,13 @@ export const useCopyRoomToClipboard = (
         hour: '2-digit',
         minute: '2-digit',
         hour12: false,
-      }).format(room.created_at ? new Date(room.created_at) : new Date())
+      }).format(
+        room.scheduled_start
+          ? new Date(room.scheduled_start)
+          : room.created_at
+            ? new Date(room.created_at)
+            : new Date()
+      )
 
       const content = [
         t('invitation', { inviter }),

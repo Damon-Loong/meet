@@ -282,8 +282,18 @@ class RoomAdmin(admin.ModelAdmin):
 
     inlines = (ResourceAccessInline,)
     search_fields = ["topic", "name", "slug", "=id"]
-    list_display = ["topic", "name", "slug", "access_level", "get_owner", "created_at"]
-    list_filter = ["access_level", "created_at"]
+    list_display = [
+        "topic",
+        "name",
+        "slug",
+        "room_type",
+        "lifecycle_status",
+        "active_participant_count",
+        "access_level",
+        "get_owner",
+        "created_at",
+    ]
+    list_filter = ["room_type", "lifecycle_status", "access_level", "created_at"]
     readonly_fields = ["id", "created_at", "updated_at"]
 
     def get_queryset(self, request):
@@ -306,6 +316,58 @@ class RoomAdmin(admin.ModelAdmin):
             return _("Multiple owners")
 
         return str(owners[0].user)
+
+
+class MeetingInvitationInline(admin.TabularInline):
+    model = models.MeetingInvitation
+    extra = 0
+    readonly_fields = [
+        "email",
+        "is_organizer",
+        "response_status",
+        "confirmed_at",
+        "initial_email_sent_at",
+        "reminder_30m_sent_at",
+        "reminder_10m_sent_at",
+        "send_error",
+    ]
+    can_delete = False
+
+
+@admin.register(models.ScheduledMeeting)
+class ScheduledMeetingAdmin(admin.ModelAdmin):
+    list_display = [
+        "topic",
+        "organizer",
+        "starts_at",
+        "ends_at",
+        "status",
+        "invitation_count",
+    ]
+    list_filter = ["status", "starts_at"]
+    search_fields = ["topic", "organizer__email", "room__slug"]
+    readonly_fields = ["id", "created_at", "updated_at"]
+    inlines = [MeetingInvitationInline]
+
+    @admin.display(description=_("Invitations"))
+    def invitation_count(self, obj):
+        return obj.invitations.count()
+
+
+@admin.register(models.MeetingInvitation)
+class MeetingInvitationAdmin(admin.ModelAdmin):
+    list_display = [
+        "email",
+        "meeting",
+        "is_organizer",
+        "response_status",
+        "confirmed_at",
+        "reminder_30m_sent_at",
+        "reminder_10m_sent_at",
+    ]
+    list_filter = ["response_status", "is_organizer"]
+    search_fields = ["email", "meeting__topic"]
+    readonly_fields = ["id", "created_at", "updated_at", "token_digest"]
 
 
 class RecordingAccessInline(admin.TabularInline):

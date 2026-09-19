@@ -26,9 +26,27 @@ export const CreateMeetingMenu = () => {
     null
   )
 
-  const handleCreate = async (topic: string) => {
+  const handleCreate = async ({
+    topic,
+    start,
+    end,
+    inviteEmails,
+  }: {
+    topic: string
+    start?: string
+    end?: string
+    inviteEmails: string[]
+  }) => {
     const slug = generateRoomId()
-    const data = await createRoom({ slug, topic, username })
+    const data = await createRoom({
+      slug,
+      topic,
+      username,
+      roomType: creationMode === 'later' ? 'scheduled' : 'instant',
+      scheduledStart: start,
+      scheduledEnd: end,
+      inviteEmails,
+    })
     setCreationMode(null)
 
     if (creationMode === 'instant') {

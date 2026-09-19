@@ -8,6 +8,10 @@ export interface CreateRoomParams {
   topic: string
   callbackId?: string
   username?: string
+  roomType?: 'instant' | 'scheduled'
+  scheduledStart?: string
+  scheduledEnd?: string
+  inviteEmails?: string[]
 }
 
 const createRoom = ({
@@ -15,6 +19,10 @@ const createRoom = ({
   topic,
   callbackId,
   username = '',
+  roomType = 'instant',
+  scheduledStart,
+  scheduledEnd,
+  inviteEmails = [],
 }: CreateRoomParams): Promise<ApiRoom> => {
   return fetchApi(`rooms/?username=${encodeURIComponent(username)}`, {
     method: 'POST',
@@ -22,6 +30,11 @@ const createRoom = ({
       name: slug,
       topic,
       callback_id: callbackId,
+      room_type: roomType,
+      scheduled_start: scheduledStart,
+      scheduled_end: scheduledEnd,
+      scheduled_timezone: 'Asia/Shanghai',
+      invite_emails: inviteEmails,
     }),
   })
 }

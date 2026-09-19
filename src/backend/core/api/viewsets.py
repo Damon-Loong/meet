@@ -76,6 +76,7 @@ from core.services.participants_management import (
 )
 from core.services.room_creation import RoomCreation
 from core.services.room_management import RoomManagement
+from core.services.scheduling import SchedulingService
 from core.services.room_roles import (
     RoomRoleError,
     RoomRoleService,
@@ -305,6 +306,12 @@ class RoomViewSet(
         """
         user = self.request.user
         save_kwargs = {}
+        scheduled_start = serializer.validated_data.pop("scheduled_start", None)
+        scheduled_end = serializer.validated_data.pop("scheduled_end", None)
+        scheduled_timezone = serializer.validated_data.pop(
+            "scheduled_timezone", "Asia/Shanghai"
+        )
+        invite_emails = serializer.validated_data.pop("invite_emails", [])
 
         if (
             "access_level" not in serializer.validated_data
@@ -325,6 +332,16 @@ class RoomViewSet(
             role=models.RoleChoices.OWNER,
         )
 
+        if room.room_type == models.RoomTypeChoices.SCHEDULED:
+            SchedulingService.create_schedule(
+                room=room,
+                organizer=user,
+                starts_at=scheduled_start,
+                ends_at=scheduled_end,
+                timezone_name=scheduled_timezone,
+                invite_emails=invite_emails,
+            )
+
         if callback_id := self.request.data.get("callback_id"):
             RoomCreation().persist_callback_state(callback_id, room)
 
@@ -337,6 +354,46 @@ class RoomViewSet(
                 "from_callback": bool(self.request.data.get("callback_id")),
             },
         )
+
+    @decorators.action(
+        detail=False,
+        methods=["post"],
+        url_path=r"confirm-invitation/(?P<token>[^/.]+)",
+        permission_classes=[drf_permissions.AllowAny],
+        authentication_classes=[],
+    )
+    def confirm_invitation(self, request, token=None):
+        """Acknowledge an invitation; this never joins the meeting."""
+        invitation = SchedulingService.confirm_invitation(token)
+        return drf_response.Response(
+            {
+                "confirmed": True,
+                "topic": invitation.meeting.topic,
+                "starts_at": invitation.meeting.starts_at,
+                "ends_at": invitation.meeting.ends_at,
+                "timezone": invitation.meeting.timezone,
+            }
+        )
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="cancel-scheduled",
+        permission_classes=[permissions.HasPrivilegesOnRoom],
+    )
+    def cancel_scheduled(self, request, pk=None):
+        """Cancel a scheduled meeting and immediately invalidate its link."""
+        room = self.get_object()
+        if room.room_type != models.RoomTypeChoices.SCHEDULED:
+            raise drf_exceptions.ValidationError(
+                "Only scheduled meetings can be cancelled."
+            )
+        SchedulingService.cancel(room)
+        try:
+            RoomManagement.delete_room(str(room.id))
+        except Exception:  # The LiveKit room may not exist yet.
+            logger.info("LiveKit room %s was not active while cancelling", room.id)
+        return drf_response.Response({"cancelled": True})
 
     def perform_update(self, serializer):
         """Persist the room update, then sync metadata to LiveKit."""

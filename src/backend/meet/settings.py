@@ -468,19 +468,19 @@ class Base(Configuration):
     }
 
     # Mail
-    EMAIL_BACKEND = values.Value("django.core.mail.backends.smtp.EmailBackend")
-    EMAIL_HOST = values.Value(None)
-    EMAIL_HOST_USER = values.Value(None)
-    EMAIL_HOST_PASSWORD = SecretFileValue(None)
-    EMAIL_PORT = values.PositiveIntegerValue(None)
-    EMAIL_USE_TLS = values.BooleanValue(False)
-    EMAIL_USE_SSL = values.BooleanValue(False)
-    EMAIL_FROM = values.Value("from@example.com")
-    EMAIL_BRAND_NAME = values.Value(None)
-    EMAIL_SUPPORT_EMAIL = values.Value(None)
-    EMAIL_LOGO_IMG = values.Value(None)
-    EMAIL_DOMAIN = values.Value(None)
-    EMAIL_APP_BASE_URL = values.Value(None)
+    EMAIL_BACKEND = values.Value("django.core.mail.backends.smtp.EmailBackend", environ_prefix=None)
+    EMAIL_HOST = values.Value(None, environ_prefix=None)
+    EMAIL_HOST_USER = values.Value(None, environ_prefix=None)
+    EMAIL_HOST_PASSWORD = SecretFileValue(None, environ_prefix=None)
+    EMAIL_PORT = values.PositiveIntegerValue(None, environ_prefix=None)
+    EMAIL_USE_TLS = values.BooleanValue(False, environ_prefix=None)
+    EMAIL_USE_SSL = values.BooleanValue(False, environ_prefix=None)
+    EMAIL_FROM = values.Value("from@example.com", environ_prefix=None)
+    EMAIL_BRAND_NAME = values.Value(None, environ_prefix=None)
+    EMAIL_SUPPORT_EMAIL = values.Value(None, environ_prefix=None)
+    EMAIL_LOGO_IMG = values.Value(None, environ_prefix=None)
+    EMAIL_DOMAIN = values.Value(None, environ_prefix=None)
+    EMAIL_APP_BASE_URL = values.Value(None, environ_prefix=None)
 
     AUTH_USER_MODEL = "core.User"
 
@@ -510,6 +510,12 @@ class Base(Configuration):
     CELERY_TASK_DEFAULT_QUEUE = values.Value("meet-backend", environ_prefix=None)
     CELERY_BROKER_URL = values.Value("redis://redis:6379/0", environ_prefix=None)
     CELERY_BROKER_TRANSPORT_OPTIONS = values.DictValue({}, environ_prefix=None)
+    CELERY_BEAT_SCHEDULE = {
+        "process-scheduled-meetings-every-minute": {
+            "task": "core.process_scheduled_meetings",
+            "schedule": 60.0,
+        }
+    }
 
     # Session
     SESSION_ENGINE = values.Value(

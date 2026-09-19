@@ -11,6 +11,8 @@ from logging import getLogger
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import F
+from django.utils import timezone as django_timezone
 
 from livekit import api
 
@@ -371,6 +373,12 @@ class LiveKitEventsService:
             )
             raise ActionFailedError("Failed to process room finished event") from e
 
+        models.Room.objects.filter(id=room_id).update(
+            active_participant_count=0,
+            last_empty_at=django_timezone.now(),
+            last_activity_at=django_timezone.now(),
+        )
+
         if settings.ROOM_TELEPHONY_ENABLED or settings.ROOMKIT_ENABLED:
             try:
                 self.sip_management.delete_dispatch_rule(room_id)
@@ -400,6 +408,27 @@ class LiveKitEventsService:
         measured and the behaviour reverted independently of the feature.
         When disabled, invalidation relies on `room_finished` and the TTL.
         """
+        try:
+            room_id = uuid.UUID(data.room.name)
+        except (ValueError, TypeError):
+            room_id = None
+        if room_id:
+            room = models.Room.objects.filter(id=room_id).first()
+            if room:
+                room.active_participant_count = max(
+                    0, room.active_participant_count - 1
+                )
+                room.last_activity_at = django_timezone.now()
+                if room.active_participant_count == 0:
+                    room.last_empty_at = django_timezone.now()
+                room.save(
+                    update_fields=[
+                        "active_participant_count",
+                        "last_activity_at",
+                        "last_empty_at",
+                    ]
+                )
+
         if not settings.PRESENCE_CLEAR_ON_PARTICIPANT_LEFT:
             return
 
@@ -415,6 +444,15 @@ class LiveKitEventsService:
             room_id = uuid.UUID(data.room.name)
         except (ValueError, TypeError):
             return
+
+        models.Room.objects.filter(
+            id=room_id,
+            lifecycle_status=models.RoomLifecycleStatusChoices.ACTIVE,
+        ).update(
+            active_participant_count=F("active_participant_count") + 1,
+            last_activity_at=django_timezone.now(),
+            last_empty_at=None,
+        )
 
         recording = (
             models.Recording.objects.filter(

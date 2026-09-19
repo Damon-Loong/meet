@@ -106,6 +106,28 @@ class RoomAccessLevel(models.TextChoices):
     RESTRICTED = "restricted", _("Restricted Access")
 
 
+class RoomTypeChoices(models.TextChoices):
+    INSTANT = "instant", _("Instant meeting")
+    SCHEDULED = "scheduled", _("Scheduled meeting")
+
+
+class RoomLifecycleStatusChoices(models.TextChoices):
+    ACTIVE = "active", _("Active")
+    EXPIRED = "expired", _("Expired")
+    CANCELLED = "cancelled", _("Cancelled")
+
+
+class ScheduledMeetingStatusChoices(models.TextChoices):
+    SCHEDULED = "scheduled", _("Scheduled")
+    CANCELLED = "cancelled", _("Cancelled")
+    FINISHED = "finished", _("Finished")
+
+
+class InvitationResponseChoices(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    ACCEPTED = "accepted", _("Accepted")
+
+
 class BaseModel(models.Model):
     """
     Serves as an abstract base model for other models, ensuring that records are validated
@@ -427,6 +449,22 @@ class Room(Resource):
         verbose_name=_("Visio room configuration"),
         help_text=_("Values for Visio parameters to configure the room."),
     )
+    room_type = models.CharField(
+        max_length=20,
+        choices=RoomTypeChoices.choices,
+        default=RoomTypeChoices.INSTANT,
+        db_index=True,
+    )
+    lifecycle_status = models.CharField(
+        max_length=20,
+        choices=RoomLifecycleStatusChoices.choices,
+        default=RoomLifecycleStatusChoices.ACTIVE,
+        db_index=True,
+    )
+    active_participant_count = models.PositiveIntegerField(default=0)
+    last_activity_at = models.DateTimeField(default=timezone.now, db_index=True)
+    last_empty_at = models.DateTimeField(blank=True, null=True, db_index=True)
+    expired_at = models.DateTimeField(blank=True, null=True)
     pin_code = models.CharField(
         max_length=None,
         unique=True,
@@ -575,6 +613,77 @@ class BaseAccess(BaseModel):
             "retrieve": bool(roles),
             "set_role_to": sorted(r.value for r in set_role_to),
         }
+
+
+class ScheduledMeeting(BaseModel):
+    """Calendar information for a scheduled room."""
+
+    room = models.OneToOneField(
+        Room, on_delete=models.CASCADE, related_name="scheduled_meeting"
+    )
+    organizer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="organized_meetings",
+    )
+    topic = models.CharField(max_length=500)
+    starts_at = models.DateTimeField(db_index=True)
+    ends_at = models.DateTimeField(db_index=True)
+    timezone = models.CharField(max_length=64, default="Asia/Shanghai")
+    status = models.CharField(
+        max_length=20,
+        choices=ScheduledMeetingStatusChoices.choices,
+        default=ScheduledMeetingStatusChoices.SCHEDULED,
+        db_index=True,
+    )
+
+    class Meta:
+        db_table = "meet_scheduled_meeting"
+        ordering = ("starts_at",)
+
+    def clean(self):
+        if self.ends_at <= self.starts_at:
+            raise ValidationError({"ends_at": _("End time must be after start time.")})
+
+    def __str__(self):
+        return self.topic
+
+
+class MeetingInvitation(BaseModel):
+    """An invitation and acknowledgement state for one email address."""
+
+    meeting = models.ForeignKey(
+        ScheduledMeeting, on_delete=models.CASCADE, related_name="invitations"
+    )
+    email = models.EmailField()
+    is_organizer = models.BooleanField(default=False)
+    response_status = models.CharField(
+        max_length=20,
+        choices=InvitationResponseChoices.choices,
+        default=InvitationResponseChoices.PENDING,
+        db_index=True,
+    )
+    token_digest = models.CharField(max_length=64, unique=True)
+    confirmed_at = models.DateTimeField(blank=True, null=True)
+    initial_email_sent_at = models.DateTimeField(blank=True, null=True)
+    reminder_30m_sent_at = models.DateTimeField(blank=True, null=True)
+    reminder_10m_sent_at = models.DateTimeField(blank=True, null=True)
+    send_error = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "meet_meeting_invitation"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["meeting", "email"], name="uniq_meeting_invitation_email"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["response_status", "reminder_30m_sent_at"]),
+            models.Index(fields=["response_status", "reminder_10m_sent_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.meeting.topic} - {self.email}"
 
 
 class Recording(BaseModel):

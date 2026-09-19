@@ -9,6 +9,7 @@ import { ApiAccessLevel, ApiRoom } from '@/features/rooms/api/ApiRoom'
 import { useTelephony } from '@/features/rooms/livekit/hooks/useTelephony'
 import { formatPinCode } from '@/features/rooms/utils/telephony'
 import { useCopyRoomToClipboard } from '@/features/rooms/livekit/hooks/useCopyRoomToClipboard'
+import { fetchApi } from '@/api/fetchApi'
 
 // fixme - duplication with the InviteDialog
 export const LaterMeetingDialog = ({
@@ -21,6 +22,7 @@ export const LaterMeetingDialog = ({
   const telephony = useTelephony()
 
   const [isHovered, setIsHovered] = useState(false)
+  const [isCancelling, setIsCancelling] = useState(false)
 
   const isTelephonyReadyForUse = useMemo(() => {
     return telephony?.enabled && room?.pin_code
@@ -44,6 +46,18 @@ export const LaterMeetingDialog = ({
   return (
     <Dialog isOpen={!!room} {...dialogProps} title={t('heading')}>
       <P>{t('description')}</P>
+      {room?.scheduled_start && room?.scheduled_end && (
+        <P>
+          会议时间：
+          {new Date(room.scheduled_start).toLocaleString('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+          })}
+          {' 至 '}
+          {new Date(room.scheduled_end).toLocaleString('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+          })}
+        </P>
+      )}
       {!!roomUrl && (
         <>
           {isTelephonyReadyForUse ? (
@@ -202,6 +216,33 @@ export const LaterMeetingDialog = ({
                 {t('permissions')}
               </Text>
             </HStack>
+          )}
+          {room?.room_type === 'scheduled' && (
+            <Button
+              variant="secondary"
+              size="sm"
+              fullWidth
+              isDisabled={isCancelling}
+              onPress={async () => {
+                if (
+                  !window.confirm(
+                    '确定取消该会议吗？取消后会议链接将立即失效。'
+                  )
+                )
+                  return
+                setIsCancelling(true)
+                try {
+                  await fetchApi(`rooms/${room.id}/cancel-scheduled/`, {
+                    method: 'POST',
+                  })
+                  dialogProps.onOpenChange?.(false)
+                } finally {
+                  setIsCancelling(false)
+                }
+              }}
+            >
+              {isCancelling ? '正在取消……' : '取消会议'}
+            </Button>
           )}
         </>
       )}

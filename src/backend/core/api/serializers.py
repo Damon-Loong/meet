@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.core.exceptions import SuspiciousOperation
+from django.utils import timezone
 
 # pylint: disable=abstract-method,no-name-in-module
 from django.utils.translation import gettext_lazy as _
@@ -146,6 +147,13 @@ class ListRoomSerializer(serializers.ModelSerializer):
 class RoomSerializer(serializers.ModelSerializer):
     """Serialize Room model for the API."""
 
+    scheduled_start = serializers.DateTimeField(write_only=True, required=False)
+    scheduled_end = serializers.DateTimeField(write_only=True, required=False)
+    scheduled_timezone = serializers.CharField(write_only=True, required=False)
+    invite_emails = serializers.ListField(
+        child=serializers.EmailField(), write_only=True, required=False, default=list
+    )
+
     class Meta:
         model = models.Room
         fields = [
@@ -157,8 +165,20 @@ class RoomSerializer(serializers.ModelSerializer):
             "access_level",
             "pin_code",
             "created_at",
+            "room_type",
+            "lifecycle_status",
+            "scheduled_start",
+            "scheduled_end",
+            "scheduled_timezone",
+            "invite_emails",
         ]
-        read_only_fields = ["id", "slug", "pin_code", "created_at"]
+        read_only_fields = [
+            "id",
+            "slug",
+            "pin_code",
+            "created_at",
+            "lifecycle_status",
+        ]
 
     def validate_topic(self, value):
         """Reject whitespace-only meeting subjects."""
@@ -166,6 +186,35 @@ class RoomSerializer(serializers.ModelSerializer):
         if not value:
             raise serializers.ValidationError("Meeting subject is required.")
         return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        is_scheduled = attrs.get("room_type") == models.RoomTypeChoices.SCHEDULED
+        starts_at = attrs.get("scheduled_start")
+        ends_at = attrs.get("scheduled_end")
+        if is_scheduled:
+            if not starts_at or not ends_at:
+                raise serializers.ValidationError(
+                    {"scheduled_start": "Start and end time are required."}
+                )
+            if starts_at <= timezone.now():
+                raise serializers.ValidationError(
+                    {"scheduled_start": "Start time must be in the future."}
+                )
+            if ends_at <= starts_at:
+                raise serializers.ValidationError(
+                    {"scheduled_end": "End time must be after start time."}
+                )
+        elif starts_at or ends_at or attrs.get("invite_emails"):
+            raise serializers.ValidationError(
+                {"room_type": "Calendar fields require a scheduled meeting."}
+            )
+        attrs["invite_emails"] = list(
+            dict.fromkeys(
+                email.strip().lower() for email in attrs.get("invite_emails", [])
+            )
+        )
+        return attrs
 
     def validate_configuration(self, value):
         """Validate room configuration against the RoomConfiguration schema."""
@@ -187,6 +236,23 @@ class RoomSerializer(serializers.ModelSerializer):
 
         if not request:
             return output
+
+        output["is_expired"] = instance.lifecycle_status in (
+            models.RoomLifecycleStatusChoices.EXPIRED,
+            models.RoomLifecycleStatusChoices.CANCELLED,
+        )
+        if instance.room_type == models.RoomTypeChoices.SCHEDULED:
+            try:
+                meeting = instance.scheduled_meeting
+            except models.ScheduledMeeting.DoesNotExist:
+                meeting = None
+            if meeting:
+                output.update(
+                    scheduled_start=meeting.starts_at.isoformat(),
+                    scheduled_end=meeting.ends_at.isoformat(),
+                    scheduled_timezone=meeting.timezone,
+                    schedule_status=meeting.status,
+                )
 
         role = instance.get_role(request.user)
         is_admin_or_owner = models.RoleChoices.check_administrator_role(
@@ -210,7 +276,7 @@ class RoomSerializer(serializers.ModelSerializer):
             or instance.is_public
         )
 
-        if should_access_room:
+        if should_access_room and not output["is_expired"]:
             room_id = f"{instance.id!s}"
             username = request.query_params.get("username", None)
             output["livekit"] = utils.generate_livekit_config(
