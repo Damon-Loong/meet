@@ -50,9 +50,9 @@ export const CreateMeetingMenu = () => {
     setCreationMode(null)
 
     if (creationMode === 'instant') {
-      navigateTo('room', data.slug, {
-        state: { create: true, initialRoomData: data },
-      })
+      // Use the normal join flow so browser media permissions are initialized
+      // only after the participant submits their name and email.
+      navigateTo('room', data.slug)
       return
     }
 
