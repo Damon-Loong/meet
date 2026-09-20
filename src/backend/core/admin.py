@@ -349,7 +349,7 @@ class ScheduledMeetingAdmin(admin.ModelAdmin):
     readonly_fields = ["id", "created_at", "updated_at"]
     inlines = [MeetingInvitationInline]
 
-    @admin.display(description=_("Invitations"))
+    @admin.display(description="邀请人数")
     def invitation_count(self, obj):
         return obj.invitations.count()
 

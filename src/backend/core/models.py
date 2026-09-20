@@ -118,14 +118,14 @@ class RoomLifecycleStatusChoices(models.TextChoices):
 
 
 class ScheduledMeetingStatusChoices(models.TextChoices):
-    SCHEDULED = "scheduled", _("Scheduled")
-    CANCELLED = "cancelled", _("Cancelled")
-    FINISHED = "finished", _("Finished")
+    SCHEDULED = "scheduled", "已预约"
+    CANCELLED = "cancelled", "已取消"
+    FINISHED = "finished", "已结束"
 
 
 class InvitationResponseChoices(models.TextChoices):
-    PENDING = "pending", _("Pending")
-    ACCEPTED = "accepted", _("Accepted")
+    PENDING = "pending", "待确认"
+    ACCEPTED = "accepted", "已确认"
 
 
 class BaseModel(models.Model):
@@ -619,18 +619,23 @@ class ScheduledMeeting(BaseModel):
     """Calendar information for a scheduled room."""
 
     room = models.OneToOneField(
-        Room, on_delete=models.CASCADE, related_name="scheduled_meeting"
+        Room,
+        on_delete=models.CASCADE,
+        related_name="scheduled_meeting",
+        verbose_name="会议室",
     )
     organizer = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="organized_meetings",
+        verbose_name="主持人",
     )
-    topic = models.CharField(max_length=500)
-    starts_at = models.DateTimeField(db_index=True)
-    ends_at = models.DateTimeField(db_index=True)
-    timezone = models.CharField(max_length=64, default="Asia/Shanghai")
+    topic = models.CharField("会议主题", max_length=500)
+    starts_at = models.DateTimeField("开始时间", db_index=True)
+    ends_at = models.DateTimeField("结束时间", db_index=True)
+    timezone = models.CharField("时区", max_length=64, default="Asia/Shanghai")
     status = models.CharField(
+        "状态",
         max_length=20,
         choices=ScheduledMeetingStatusChoices.choices,
         default=ScheduledMeetingStatusChoices.SCHEDULED,
@@ -640,6 +645,8 @@ class ScheduledMeeting(BaseModel):
     class Meta:
         db_table = "meet_scheduled_meeting"
         ordering = ("starts_at",)
+        verbose_name = "日程会议"
+        verbose_name_plural = "日程会议"
 
     def clean(self):
         if self.ends_at <= self.starts_at:
@@ -653,22 +660,26 @@ class MeetingInvitation(BaseModel):
     """An invitation and acknowledgement state for one email address."""
 
     meeting = models.ForeignKey(
-        ScheduledMeeting, on_delete=models.CASCADE, related_name="invitations"
+        ScheduledMeeting,
+        on_delete=models.CASCADE,
+        related_name="invitations",
+        verbose_name="日程会议",
     )
-    email = models.EmailField()
-    is_organizer = models.BooleanField(default=False)
+    email = models.EmailField("受邀邮箱")
+    is_organizer = models.BooleanField("是否主持人", default=False)
     response_status = models.CharField(
+        "确认状态",
         max_length=20,
         choices=InvitationResponseChoices.choices,
         default=InvitationResponseChoices.PENDING,
         db_index=True,
     )
-    token_digest = models.CharField(max_length=64, unique=True)
-    confirmed_at = models.DateTimeField(blank=True, null=True)
-    initial_email_sent_at = models.DateTimeField(blank=True, null=True)
-    reminder_30m_sent_at = models.DateTimeField(blank=True, null=True)
-    reminder_10m_sent_at = models.DateTimeField(blank=True, null=True)
-    send_error = models.TextField(blank=True, default="")
+    token_digest = models.CharField("确认令牌摘要", max_length=64, unique=True)
+    confirmed_at = models.DateTimeField("确认时间", blank=True, null=True)
+    initial_email_sent_at = models.DateTimeField("邀请邮件发送时间", blank=True, null=True)
+    reminder_30m_sent_at = models.DateTimeField("会前30分钟提醒时间", blank=True, null=True)
+    reminder_10m_sent_at = models.DateTimeField("会前10分钟提醒时间", blank=True, null=True)
+    send_error = models.TextField("邮件发送错误", blank=True, default="")
 
     class Meta:
         db_table = "meet_meeting_invitation"
@@ -681,6 +692,8 @@ class MeetingInvitation(BaseModel):
             models.Index(fields=["response_status", "reminder_30m_sent_at"]),
             models.Index(fields=["response_status", "reminder_10m_sent_at"]),
         ]
+        verbose_name = "会议邀请"
+        verbose_name_plural = "会议邀请"
 
     def __str__(self):
         return f"{self.meeting.topic} - {self.email}"

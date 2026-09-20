@@ -9,6 +9,13 @@ const localDateTime = (date: Date) => {
   return local.toISOString().slice(0, 16)
 }
 
+const defaultSchedule = () => {
+  const startTime = new Date(Math.ceil(Date.now() / 60000) * 60000 + 5 * 60000)
+  return {
+    start: localDateTime(startTime),
+    end: localDateTime(new Date(startTime.getTime() + 60 * 60000)),
+  }
+}
 export type MeetingCreationMode = 'instant' | 'later'
 
 type CreateMeetingDialogProps = {
@@ -38,9 +45,10 @@ export const CreateMeetingDialog = ({
 
   useEffect(() => {
     if (mode) {
+      const schedule = defaultSchedule()
       setTopic('')
-      setStart('')
-      setEnd('')
+      setStart(mode === 'later' ? schedule.start : '')
+      setEnd(mode === 'later' ? schedule.end : '')
       setEmails('')
       setError('')
     }
@@ -74,6 +82,7 @@ export const CreateMeetingDialog = ({
               <Text>开始时间 *</Text>
               <input
                 type="datetime-local"
+                lang="zh-CN"
                 value={start}
                 min={localDateTime(new Date())}
                 onChange={(event) => setStart(event.target.value)}
@@ -90,6 +99,7 @@ export const CreateMeetingDialog = ({
               <Text>结束时间 *</Text>
               <input
                 type="datetime-local"
+                lang="zh-CN"
                 value={end}
                 min={start}
                 onChange={(event) => setEnd(event.target.value)}
