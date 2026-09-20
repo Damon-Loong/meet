@@ -10,6 +10,7 @@ from uuid import UUID
 from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
+from rest_framework.exceptions import PermissionDenied
 
 from core import models, utils
 
@@ -193,6 +194,13 @@ class LobbyService:
         4. If accepted, generate LiveKit config
         5. If denied, do nothing.
         """
+
+        room.refresh_from_db(fields=["lifecycle_status"])
+        if room.lifecycle_status != models.RoomLifecycleStatusChoices.ACTIVE:
+            raise PermissionDenied(
+                {"detail": "会议已取消或链接已失效，请联系主持人创建新会议。",
+                 "code": "room_unavailable"}
+            )
 
         participant_id = self._get_or_create_participant_id(request)
         participant = self._get_participant(room.id, participant_id)

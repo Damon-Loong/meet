@@ -208,6 +208,15 @@ export const Conference = ({
     )
   }
 
+  if (data?.is_expired) {
+    return (
+      <ErrorScreen
+        title="会议链接已失效"
+        body="会议已结束或取消，请联系主持人获取新的邀请链接。"
+      />
+    )
+  }
+
   // Some clients (like DINUM) operate in bandwidth-constrained environments
   // These settings help ensure successful connections in poor network conditions
   const connectOptions = {

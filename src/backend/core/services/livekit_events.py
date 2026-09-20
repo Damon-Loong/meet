@@ -412,7 +412,7 @@ class LiveKitEventsService:
             room_id = uuid.UUID(data.room.name)
         except (ValueError, TypeError):
             room_id = None
-        if room_id:
+        if room_id and not data.participant.identity.upper().startswith("EG_"):
             room = models.Room.objects.filter(id=room_id).first()
             if room:
                 room.active_participant_count = max(
@@ -443,6 +443,9 @@ class LiveKitEventsService:
         try:
             room_id = uuid.UUID(data.room.name)
         except (ValueError, TypeError):
+            return
+
+        if data.participant.identity.upper().startswith("EG_"):
             return
 
         models.Room.objects.filter(

@@ -45,9 +45,9 @@ export const Lobby = ({
   } = useQuery({
     queryKey: [keys.room, roomId],
     queryFn: () => fetchRoom({ roomId, username: username || user?.full_name }),
-    staleTime: 6 * 60 * 60 * 1000, // By default, LiveKit access tokens expire 6 hours after generation
+    staleTime: 0,
     retry: false,
-    enabled: false,
+    enabled: true,
   })
 
   useEffect(() => {
@@ -76,6 +76,8 @@ export const Lobby = ({
   const handleSubmit = async () => {
     const { data } = await refetchRoom()
 
+    if (data?.is_expired) return
+
     if (!data?.livekit) {
       // Display a message to inform the user that by logging in, they won't have to wait for room entry approval.
       if (data?.access_level == ApiAccessLevel.TRUSTED) {
@@ -86,6 +88,21 @@ export const Lobby = ({
     }
 
     enterRoom()
+  }
+
+  if (roomData?.is_expired) {
+    return (
+      <VStack alignItems="center" textAlign="center">
+        <H lvl={1} margin={false} centered>
+          {roomData.lifecycle_status === 'cancelled'
+            ? '会议已取消'
+            : '会议链接已失效'}
+        </H>
+        <Text as="p" variant="note">
+          请联系主持人创建新会议并获取新的邀请链接。
+        </Text>
+      </VStack>
+    )
   }
 
   switch (status) {
