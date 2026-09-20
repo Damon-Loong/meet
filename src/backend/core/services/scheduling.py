@@ -4,6 +4,7 @@ import hashlib
 import html
 import secrets
 from datetime import timezone as datetime_timezone
+from email.utils import parseaddr
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -77,6 +78,35 @@ class SchedulingService:
         )
         status = "CANCELLED" if method == "CANCEL" else "CONFIRMED"
         room_url = f"{settings.EMAIL_APP_BASE_URL.rstrip('/')}/{meeting.room.slug}"
+        organizer = meeting.organizer
+        organizer_email = organizer.email or organizer.admin_email
+        organizer_name = (
+            organizer.full_name
+            or organizer.short_name
+            or organizer_email
+            or "会议主持人"
+        )
+        sender_email = parseaddr(settings.EMAIL_FROM)[1]
+        organizer_email = organizer_email or sender_email
+        sent_by = (
+            f';SENT-BY="mailto:{sender_email}"'
+            if sender_email and sender_email.lower() != organizer_email.lower()
+            else ""
+        )
+        attendees = []
+        for invitation in meeting.invitations.all():
+            if invitation.email.lower() == organizer_email.lower():
+                continue
+            partstat = (
+                "ACCEPTED"
+                if invitation.response_status
+                == models.InvitationResponseChoices.ACCEPTED
+                else "NEEDS-ACTION"
+            )
+            attendees.append(
+                f"ATTENDEE;CN={invitation.email};ROLE=REQ-PARTICIPANT;"
+                f"PARTSTAT={partstat};RSVP=TRUE:mailto:{invitation.email}"
+            )
         return "\r\n".join(
             [
                 "BEGIN:VCALENDAR",
@@ -90,6 +120,8 @@ class SchedulingService:
                 f"DTEND:{end}",
                 f"SUMMARY:{meeting.topic}",
                 f"DESCRIPTION:{room_url}",
+                f"ORGANIZER;CN={organizer_name}{sent_by}:mailto:{organizer_email}",
+                *attendees,
                 f"URL:{room_url}",
                 f"STATUS:{status}",
                 "END:VEVENT",
@@ -135,8 +167,13 @@ class SchedulingService:
         )
         if confirm_url and not invitation.is_organizer:
             text += f"\n确认参会：{confirm_url}"
+        organizer_email = meeting.organizer.email or meeting.organizer.admin_email
         message = EmailMultiAlternatives(
-            subject, text, settings.EMAIL_FROM, [invitation.email]
+            subject,
+            text,
+            settings.EMAIL_FROM,
+            [invitation.email],
+            reply_to=[organizer_email] if organizer_email else None,
         )
         message.attach_alternative(body, "text/html")
         if not reminder_minutes:
@@ -201,6 +238,11 @@ class SchedulingService:
                 f"会议“{meeting.topic}”已取消。",
                 settings.EMAIL_FROM,
                 [invitation.email],
+                reply_to=(
+                    [meeting.organizer.email or meeting.organizer.admin_email]
+                    if meeting.organizer.email or meeting.organizer.admin_email
+                    else None
+                ),
             )
             message.attach(
                 "meeting.ics",
