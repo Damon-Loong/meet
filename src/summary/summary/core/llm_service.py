@@ -132,6 +132,18 @@ class LLMService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                "reasoning_effort": "medium",
+                "temperature": 1.0,
+                "top_p": 0.95,
+                "presence_penalty": 0.0,
+                "max_tokens": 32768,
+                "stream": False,
+                "extra_body": {
+                    "top_k": 20,
+                    "min_p": 0.0,
+                    "repetition_penalty": 1.0,
+                    "chat_template_kwargs": {"enable_thinking": True},
+                },
             }
             if response_format is not None:
                 params["response_format"] = response_format
