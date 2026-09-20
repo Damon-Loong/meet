@@ -136,7 +136,6 @@ class LLMService:
                 "temperature": 1.0,
                 "top_p": 0.95,
                 "presence_penalty": 0.0,
-                "max_tokens": 32768,
                 "stream": False,
                 "extra_body": {
                     "top_k": 20,
