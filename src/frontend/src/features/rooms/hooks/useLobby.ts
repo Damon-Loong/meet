@@ -13,10 +13,12 @@ export const POLL_INTERVAL_MS = 3_000
 export const useLobby = ({
   roomId,
   username,
+  email,
   onAccepted,
 }: {
   roomId: string
   username: string
+  email: string
   onAccepted: (e: ApiRequestEntry) => void
 }) => {
   const [status, setStatus] = useState(ApiLobbyStatus.IDLE)
@@ -42,6 +44,7 @@ export const useLobby = ({
       const response = await requestEntry({
         roomId,
         username,
+        email,
       })
       if (response.status === ApiLobbyStatus.ACCEPTED) {
         clearWaitingTimeout()

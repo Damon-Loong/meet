@@ -11,18 +11,19 @@ logger = logging.getLogger(__name__)
 
 
 def send_meeting_documents(
-    *, recipient: str, title: str, transcript: str, summary: str
+    *, recipients: list[str], title: str, transcript: str, summary: str
 ) -> None:
-    """Send the generated Markdown documents to the meeting owner."""
+    """Send one message to all meeting participants."""
+    recipients = list(dict.fromkeys(email.strip().lower() for email in recipients))
 
     if not settings.email_delivery_enabled:
-        logger.info("Email delivery is disabled; skipping message to %s", recipient)
+        logger.info("Email delivery is disabled; skipping message to %s", recipients)
         return
 
     message = EmailMessage()
     message["Subject"] = f"{title}：转录和 AI 总结"
     message["From"] = settings.email_from
-    message["To"] = recipient
+    message["To"] = ", ".join(recipients)
     message.set_content(
         f"{settings.email_brand_name} 已完成本次会议的语音转录和 AI 总结。\n\n"
         "转录文档和会议总结已作为附件发送。"
@@ -51,4 +52,4 @@ def send_meeting_documents(
             )
         smtp.send_message(message)
 
-    logger.info("Transcript and summary sent to %s", recipient)
+    logger.info("Transcript and summary sent to %s", recipients)

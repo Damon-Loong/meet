@@ -20,6 +20,10 @@ class SharedV2TaskCreation(BaseModel):
         title="User Email",
         description="The user's email for analytics purposes.",
     )
+    recipient_emails: list[EmailStr] = Field(
+        default_factory=list,
+        description="Recipients for the completed transcript and summary.",
+    )
 
 
 class RecordingMetadata(BaseModel):

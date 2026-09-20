@@ -181,6 +181,7 @@ class LobbyService:
         room: models.Room,
         request,
         username: str,
+        email: str = "",
     ) -> Tuple[LobbyParticipant, Optional[Dict]]:
         """Request entry to a room for a participant.
 
@@ -224,6 +225,7 @@ class LobbyService:
                 room_id=room_id,
                 user=request.user,
                 username=username,
+                email=email,
                 color=participant.color,
                 configuration=room.configuration,
                 participant_id=participant_id,
@@ -245,6 +247,7 @@ class LobbyService:
                 room_id=room_id,
                 user=request.user,
                 username=username,
+                email=email,
                 color=participant.color,
                 configuration=room.configuration,
                 participant_id=participant_id,

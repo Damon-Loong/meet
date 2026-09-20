@@ -4,6 +4,7 @@ import type { ApiLiveKit } from '@/features/rooms/api/ApiRoom'
 export interface RequestEntryParams {
   roomId: string
   username?: string
+  email?: string
 }
 
 export enum ApiLobbyStatus {
@@ -22,11 +23,13 @@ export interface ApiRequestEntry {
 export const requestEntry = async ({
   roomId,
   username = '',
+  email = '',
 }: RequestEntryParams) => {
   return fetchApi<ApiRequestEntry>(`/rooms/${roomId}/request-entry/`, {
     method: 'POST',
     body: JSON.stringify({
       username,
+      email,
     }),
   })
 }

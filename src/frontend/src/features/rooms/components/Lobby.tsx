@@ -12,8 +12,7 @@ import { keys } from '@/api/queryKeys'
 import { queryClient } from '@/api/queryClient'
 import { useLoginHint } from '@/hooks/useLoginHint'
 import { useUser } from '@/features/auth/api/useUser'
-import { useConfig } from '@/api/useConfig'
-import { saveUsername, userStore } from '@/stores/user'
+import { saveEmail, saveUsername, userStore } from '@/stores/user'
 import { fetchRoom } from '../api/fetchRoom'
 import { ApiAccessLevel } from '../api/ApiRoom'
 import { ApiLobbyStatus, type ApiRequestEntry } from '../api/requestEntry'
@@ -28,9 +27,8 @@ export const Lobby = ({
 }) => {
   const { t } = useTranslation('rooms', { keyPrefix: 'join' })
 
-  const { data: configData } = useConfig()
-  const { isLoggedIn, user } = useUser()
-  const { username } = useSnapshot(userStore)
+  const { user } = useUser()
+  const { username, email } = useSnapshot(userStore)
 
   // Room data strategy:
   // 1. Initial fetch is performed to check access and get LiveKit configuration
@@ -44,7 +42,12 @@ export const Lobby = ({
     refetch: refetchRoom,
   } = useQuery({
     queryKey: [keys.room, roomId],
-    queryFn: () => fetchRoom({ roomId, username: username || user?.full_name }),
+    queryFn: () =>
+      fetchRoom({
+        roomId,
+        username: username || user?.full_name,
+        email: email || user?.email,
+      }),
     staleTime: 0,
     retry: false,
     enabled: true,
@@ -68,6 +71,7 @@ export const Lobby = ({
   const { status, startWaiting } = useLobby({
     roomId,
     username: username || user?.full_name || 'anonymous',
+    email: email || user?.email || '',
     onAccepted: handleAccepted,
   })
 
@@ -160,24 +164,38 @@ export const Lobby = ({
             <H lvl={1} margin="sm" centered>
               {t('heading')}
             </H>
-            {(!isLoggedIn ||
-              configData?.authenticated_users_can_edit_display_name) && (
-              <Field
-                type="text"
-                onChange={saveUsername}
-                label={t('usernameLabel')}
-                aria-label={t('usernameLabel')}
-                id="input-name"
-                defaultValue={username || user?.full_name}
-                validate={(value) => !value && t('errors.usernameEmpty')}
-                wrapperProps={{
-                  noMargin: true,
-                  fullWidth: true,
-                }}
-                autoComplete="name"
-                maxLength={50}
-              />
-            )}
+            <Field
+              type="text"
+              onChange={saveUsername}
+              label={t('usernameLabel')}
+              aria-label={t('usernameLabel')}
+              id="input-name"
+              defaultValue={username || user?.full_name}
+              validate={(value) => !value && t('errors.usernameEmpty')}
+              wrapperProps={{ noMargin: true, fullWidth: true }}
+              autoComplete="name"
+              maxLength={50}
+            />
+            <Field
+              type="text"
+              onChange={saveEmail}
+              label="邮箱"
+              aria-label="邮箱"
+              id="input-email"
+              defaultValue={email || user?.email}
+              validate={(value) => {
+                if (!value) return '请输入邮箱'
+                if (
+                  value.indexOf('@') < 1 ||
+                  value.lastIndexOf('.') < value.indexOf('@') + 2
+                ) {
+                  return '请输入有效的邮箱地址'
+                }
+              }}
+              wrapperProps={{ noMargin: true, fullWidth: true }}
+              autoComplete="email"
+              maxLength={254}
+            />
           </VStack>
         </Form>
       )

@@ -585,6 +585,7 @@ def process_audio_transcribe_v2_task(
                     tenant_id=payload.tenant_id,
                     user_sub=payload.user_sub,
                     user_email=payload.user_email,
+                    recipient_emails=payload.recipient_emails,
                     push_to_docs_config=PushToDocsBaseConfig(
                         user_email=payload.push_to_docs_config.user_email,
                         title=locale.summary_title_template.format(
@@ -686,9 +687,9 @@ def summarize_v2_task(
     job_id = self.request.id
     file_service.store_summary(summary=summary, job_id=job_id)
 
-    if payload.user_email and payload.push_to_docs_config:
+    if payload.recipient_emails and payload.push_to_docs_config:
         send_meeting_documents(
-            recipient=str(payload.user_email),
+            recipients=[str(email) for email in payload.recipient_emails],
             title=payload.push_to_docs_config.title,
             transcript=payload.content,
             summary=summary,

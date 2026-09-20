@@ -279,13 +279,17 @@ class RoomSerializer(serializers.ModelSerializer):
         if should_access_room and not output["is_expired"]:
             room_id = f"{instance.id!s}"
             username = request.query_params.get("username", None)
-            output["livekit"] = utils.generate_livekit_config(
-                room_id=room_id,
-                user=request.user,
-                username=username,
-                configuration=output["configuration"],
-                role=role,
-            )
+            email = request.query_params.get("email", None)
+            if username and email:
+                serializers.EmailField().run_validation(email)
+                output["livekit"] = utils.generate_livekit_config(
+                    room_id=room_id,
+                    user=request.user,
+                    username=username,
+                    email=email,
+                    configuration=output["configuration"],
+                    role=role,
+                )
         else:
             del output["pin_code"]
 
@@ -383,6 +387,7 @@ class RequestEntrySerializer(BaseValidationOnlySerializer):
     """Validate request entry data."""
 
     username = serializers.CharField(required=True)
+    email = serializers.EmailField(required=True)
 
 
 class ParticipantEntrySerializer(BaseValidationOnlySerializer):

@@ -382,10 +382,16 @@ class NotificationService:
                 "ended_at": ended_at.isoformat(),
                 "participants": recording.options.get("participants", []),
             }
+        recipient_emails = {notification_email.lower()}
+        for participant in recording.options.get("participants", []):
+            participant_email = participant.get("email", "").strip().lower()
+            if participant_email:
+                recipient_emails.add(participant_email)
 
         payload = {
             "user_sub": owner_sub,
             "user_email": notification_email,
+            "recipient_emails": sorted(recipient_emails),
             "cloud_storage_url": generate_download_s3_url(
                 recording.key,
                 expires_in=settings.SUMMARY_SERVICE_CLOUD_STORAGE_SIGNED_URL_EXPIRY_SECONDS,

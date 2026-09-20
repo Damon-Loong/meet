@@ -64,6 +64,7 @@ def generate_token(  # noqa: PLR0917
     room: str,
     user,
     username: Optional[str] = None,
+    email: Optional[str] = None,
     color: Optional[str] = None,
     sources: Optional[List[str]] = None,
     role: Optional[str] = None,
@@ -135,6 +136,7 @@ def generate_token(  # noqa: PLR0917
                 "color": color,
                 "room_role": role,
                 "is_authenticated": "true" if user.is_authenticated else "false",
+                "participant_email": email or "",
             }
         )
     )
@@ -148,6 +150,7 @@ def generate_livekit_config(  # noqa: PLR0917
     room_id: str,
     user,
     username: str,
+    email: Optional[str] = None,
     role: Optional[str] = None,
     color: Optional[str] = None,
     configuration: Optional[dict] = None,
@@ -180,6 +183,7 @@ def generate_livekit_config(  # noqa: PLR0917
             room=room_id,
             user=user,
             username=username,
+            email=email,
             color=color,
             sources=sources,
             role=role,

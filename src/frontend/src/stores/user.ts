@@ -4,10 +4,12 @@ import { reportError } from '@/features/analytics/telemetry'
 
 type State = {
   username: string
+  email: string
 }
 
 const DEFAULT_STATE = {
   username: '',
+  email: '',
 }
 
 function getUserState(): State {
@@ -34,4 +36,8 @@ subscribe(userStore, () => {
 
 export const saveUsername = (username: string) => {
   userStore.username = username
+}
+
+export const saveEmail = (email: string) => {
+  userStore.email = email
 }

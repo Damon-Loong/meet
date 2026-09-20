@@ -474,6 +474,9 @@ class LiveKitEventsService:
 
         identity = getattr(data.participant, "identity", "")
         name = getattr(data.participant, "name", "") or identity
+        email = (getattr(data.participant, "attributes", {}) or {}).get(
+            "participant_email", ""
+        )
         if not identity and not name:
             return
         # LiveKit Egress joins the room as an internal participant whose
@@ -482,6 +485,12 @@ class LiveKitEventsService:
             return
 
         participants = recording.options.setdefault("participants", [])
-        if not any(item.get("identity") == identity for item in participants):
-            participants.append({"identity": identity, "name": name})
+        existing = next(
+            (item for item in participants if item.get("identity") == identity), None
+        )
+        if existing:
+            existing.update(name=name, email=email or existing.get("email", ""))
+        else:
+            participants.append({"identity": identity, "name": name, "email": email})
+        if email or not existing:
             recording.save(update_fields=["options"])
