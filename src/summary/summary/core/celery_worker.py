@@ -43,6 +43,10 @@ from summary.core.prompt import (
     PROMPT_SYSTEM_PLAN,
     PROMPT_SYSTEM_TLDR,
     PROMPT_USER_PART,
+    PROMPT_SYSTEM_FINAL_SUMMARY,
+    PROMPT_SYSTEM_SEGMENT_EXTRACT,
+    PROMPT_USER_FINAL_SUMMARY,
+    PROMPT_USER_SEGMENT_EXTRACT,
 )
 from summary.core.shared_models import (
     SummarizeWebhookFailurePayload,
@@ -352,6 +356,18 @@ def format_actions(llm_output: dict, participants: list[str] | None = None) -> s
 def format_summary_document(*, transcript: str, summary: str, title: str) -> str:
     """Combine authoritative transcript metadata with the generated summary."""
 
+    disclaimer = (
+        "> 本文档由 AI 根据会议转写自动生成，可能存在遗漏或误差；"
+        "重要决策、人名、数据和行动项请以人工确认为准。"
+    )
+
+    # The current summarization prompt generates the complete document. Keep
+    # the AI result intact instead of prepending a second title and metadata
+    # block. The fallback below remains for summaries created by the legacy
+    # prompt chain.
+    if re.search(r"^# .+｜会议纪要\s*$", summary, flags=re.MULTILINE):
+        return f"{summary.strip()}\n\n---\n\n{disclaimer}\n"
+
     def section(name: str) -> str:
         match = re.search(
             rf"^## {re.escape(name)}\s*\n(.*?)(?=^## |\Z)",
@@ -376,8 +392,7 @@ def format_summary_document(*, transcript: str, summary: str, title: str) -> str
         "- 本总结根据会议语音转写内容生成。\n\n"
         f"{summary.strip()}\n\n"
         "---\n\n"
-        "> 本文档由 AI 根据会议转写自动生成，可能存在遗漏或误差；"
-        "重要决策、人名、数据和行动项请以人工确认为准。\n"
+        f"{disclaimer}\n"
     )
 
 
@@ -386,10 +401,9 @@ def summarize_transcription_internals(
 ) -> str:
     """Generate a summary from the provided transcription text.
 
-    1. Uses an LLM to generate a TL;DR summary of the transcription.
-    2. Breaks the transcription into parts and summarizes each part.
-    3. Cleans up the combined summary
-    4. Generates next steps.
+    1. Splits the timestamped transcript into four chronological segments.
+    2. Uses the LLM to extract reliable facts from each segment.
+    3. Uses one final LLM call to reconcile and write the complete Markdown report.
     """
     logger.info(
         "Starting summarization task | Owner: %s",
@@ -412,59 +426,84 @@ def summarize_transcription_internals(
     )
     llm_service = LLMService(llm_observability=llm_observability)
 
-    tldr = llm_service.call(PROMPT_SYSTEM_TLDR, transcript, name="tldr")
-
-    logger.info("TLDR generated")
-
-    parts = llm_service.call(
-        PROMPT_SYSTEM_PLAN, transcript, name="parts", response_format=FORMAT_PLAN
+    transcript_heading = re.search(
+        r"^## 逐字转录\s*$", transcript, flags=re.MULTILINE
     )
-    logger.info("Plan generated")
+    if transcript_heading:
+        meeting_context = transcript[: transcript_heading.start()].strip()
+        transcript_body = transcript[transcript_heading.end() :].strip()
+    else:
+        meeting_context = "会议基础信息未单独提供，请仅使用转写中明确出现的信息。"
+        transcript_body = transcript.strip()
 
-    res = json.loads(parts)
-    parts = res.get("titles", [])
-    logger.info("Parts to summarize: %s", parts)
-    parts_summarized = []
-    for part in parts:
-        prompt_user_part = PROMPT_USER_PART.format(part=part, transcript=transcript)
-        logger.info("Summarizing part: %s", part)
-        parts_summarized.append(
-            llm_service.call(PROMPT_SYSTEM_PART, prompt_user_part, name="part")
+    # Keep timestamps and speaker labels while removing Markdown decoration and
+    # empty lines. This reduces input size without discarding evidence needed by
+    # the final model to attribute decisions and action items.
+    compact_lines = []
+    for line in transcript_body.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        line = re.sub(
+            r"^-\s*\*\*\[([^]]+)]\s*([^：]+)：\*\*\s*",
+            r"[\1][\2] ",
+            line,
+        )
+        compact_lines.append(line)
+
+    # Four chronological chunks substantially reduce repeated context and model
+    # calls compared with the former topic-by-topic workflow. Calls remain
+    # sequential to avoid increasing GPU peak memory on self-hosted models.
+    segment_count = min(4, max(1, len(compact_lines)))
+    total_chars = sum(len(line) + 1 for line in compact_lines)
+    target_chars = max(1, total_chars // segment_count)
+    segments: list[str] = []
+    current: list[str] = []
+    current_chars = 0
+    for line in compact_lines:
+        if (
+            current
+            and current_chars >= target_chars
+            and len(segments) < segment_count - 1
+        ):
+            segments.append("\n".join(current))
+            current = []
+            current_chars = 0
+        current.append(line)
+        current_chars += len(line) + 1
+    if current:
+        segments.append("\n".join(current))
+
+    segment_extracts = []
+    for index, segment in enumerate(segments, start=1):
+        logger.info("Extracting transcript segment %s/%s", index, len(segments))
+        prompt = PROMPT_USER_SEGMENT_EXTRACT.format(
+            meeting_context=meeting_context,
+            index=index,
+            total=len(segments),
+            segment=segment,
+        )
+        extracted = llm_service.call(
+            PROMPT_SYSTEM_SEGMENT_EXTRACT,
+            prompt,
+            name=f"segment-{index}",
+        )
+        segment_extracts.append(
+            f"## 第 {index}/{len(segments)} 段提取结果\n\n{extracted.strip()}"
         )
 
-    logger.info("Parts summarized")
+    logger.info("Transcript segments extracted")
 
-    raw_summary = "\n\n".join(parts_summarized)
-
-    next_steps = llm_service.call(
-        PROMPT_SYSTEM_NEXT_STEP,
-        transcript,
-        name="next-steps",
-        response_format=FORMAT_NEXT_STEPS,
+    final_prompt = PROMPT_USER_FINAL_SUMMARY.format(
+        meeting_context=meeting_context,
+        segment_extracts="\n\n".join(segment_extracts),
     )
-
-    participant_match = re.search(
-        r"^## 参会人员\s*\n(.*?)(?=^## |\Z)",
-        transcript,
-        flags=re.MULTILINE | re.DOTALL,
+    summary = llm_service.call(
+        PROMPT_SYSTEM_FINAL_SUMMARY,
+        final_prompt,
+        name="final-summary",
     )
-    participants = []
-    if participant_match:
-        participants = [
-            name.strip(" -*\t")
-            for name in re.split(r"[、,，；;\n]+", participant_match.group(1))
-            if name.strip(" -*\t") and name.strip(" -*\t") != "未记录"
-        ]
-    next_steps = format_actions(json.loads(next_steps), participants)
-
-    logger.info("Next steps generated")
-
-    cleaned_summary = llm_service.call(
-        PROMPT_SYSTEM_CLEANING, raw_summary, name="cleaning"
-    )
-    logger.info("Summary cleaned")
-
-    summary = tldr + "\n\n" + cleaned_summary + "\n\n" + next_steps
+    logger.info("Final summary generated")
 
     llm_observability.flush()
     logger.debug("LLM observability flushed")
