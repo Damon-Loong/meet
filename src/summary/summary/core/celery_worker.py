@@ -3,6 +3,7 @@
 # ruff: noqa: PLR0913
 
 import json
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -307,22 +308,77 @@ def format_transcript(
     )
 
 
-def format_actions(llm_output: dict) -> str:
-    """Format the actions from the LLM output into a markdown list.
+def format_actions(llm_output: dict, participants: list[str] | None = None) -> str:
+    """Format explicit action items without inventing owners or deadlines."""
+    lines = [
+        "## 每个人的 To-do List",
+        "",
+        "| 负责人 | 任务 | 时间要求 | 归属依据 |",
+        "| --- | --- | --- | --- |",
+    ]
+    pending = []
+    assigned_people = set()
 
-    format:
-    - [ ] Action title Assignée à : assignee1, assignee2, Échéance : due_date
-    """
-    lines = []
+    def cell(value: str) -> str:
+        return str(value).replace("|", "\\|").replace("\n", " ").strip()
+
     for action in llm_output.get("actions", []):
-        title = action.get("title", "").strip()
-        assignees = ", ".join(action.get("assignees", [])) or "-"
-        due_date = action.get("due_date") or "-"
-        line = f"- [ ] {title} Assignée à : {assignees}, Échéance : {due_date}"
-        lines.append(line)
-    if lines:
-        return "### Prochaines étapes\n\n" + "\n".join(lines)
-    return ""
+        title = cell(action.get("title", ""))
+        if not title:
+            continue
+        assignees = action.get("assignees", [])
+        due_date = action.get("due_date") or "未明确"
+        if assignees:
+            for assignee in assignees:
+                assigned_people.add(str(assignee).casefold())
+                lines.append(
+                    f"| {cell(assignee)} | {title} | {cell(due_date)} | 会议中明确指派 |"
+                )
+        else:
+            pending.append((title, due_date))
+    for participant in participants or []:
+        if participant.casefold() not in assigned_people:
+            lines.append(
+                f"| {cell(participant)} | 本次未识别到明确分配的待办 | - | - |"
+            )
+    if len(lines) == 4:
+        lines.append("| - | 本次未识别到明确分配的待办 | - | - |")
+    if pending:
+        lines.extend(["", "## 负责人待确认", ""])
+        lines.extend(f"- {title}（时间要求：{due_date}）" for title, due_date in pending)
+    return "\n".join(lines)
+
+
+def format_summary_document(*, transcript: str, summary: str, title: str) -> str:
+    """Combine authoritative transcript metadata with the generated summary."""
+
+    def section(name: str) -> str:
+        match = re.search(
+            rf"^## {re.escape(name)}\s*\n(.*?)(?=^## |\Z)",
+            transcript,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        return match.group(1).strip() if match else "未记录"
+
+    document_title = title.removesuffix("的会议总结")
+    english_title = re.fullmatch(
+        r'Meeting "(.+)" on \d{4}-\d{2}-\d{2} at \d{2}:\d{2}', document_title
+    )
+    meeting_title = english_title.group(1) if english_title else document_title
+
+    return (
+        f"# {meeting_title}｜会议总结\n\n"
+        "## 会议概览\n\n"
+        f"{section('会议概览')}\n\n"
+        "## 参会人员\n\n"
+        f"{section('参会人员')}\n\n"
+        "## 材料范围\n\n"
+        "- 本总结根据会议语音转写内容生成。\n\n"
+        f"{summary.strip()}\n\n"
+        "---\n\n"
+        "> 本文档由 AI 根据会议转写自动生成，可能存在遗漏或误差；"
+        "重要决策、人名、数据和行动项请以人工确认为准。\n"
+    )
 
 
 def summarize_transcription_internals(
@@ -387,7 +443,19 @@ def summarize_transcription_internals(
         response_format=FORMAT_NEXT_STEPS,
     )
 
-    next_steps = format_actions(json.loads(next_steps))
+    participant_match = re.search(
+        r"^## 参会人员\s*\n(.*?)(?=^## |\Z)",
+        transcript,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    participants = []
+    if participant_match:
+        participants = [
+            name.strip(" -*\t")
+            for name in re.split(r"[、,，；;\n]+", participant_match.group(1))
+            if name.strip(" -*\t") and name.strip(" -*\t") != "未记录"
+        ]
+    next_steps = format_actions(json.loads(next_steps), participants)
 
     logger.info("Next steps generated")
 
@@ -683,6 +751,15 @@ def summarize_v2_task(
         distinct_id=payload.user_sub,
         transcript=payload.content,
         session_id=self.request.id,
+    )
+    summary = format_summary_document(
+        transcript=payload.content,
+        summary=summary,
+        title=(
+            payload.push_to_docs_config.title
+            if payload.push_to_docs_config
+            else "会议总结"
+        ),
     )
     job_id = self.request.id
     file_service.store_summary(summary=summary, job_id=job_id)
