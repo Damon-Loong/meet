@@ -105,6 +105,7 @@ class LiveKitEventsService:
             "room_finished": self._handle_room_finished,
             "participant_joined": self._handle_participant_joined,
             "participant_left": self._handle_participant_left,
+            "track_published": self._handle_track_published,
         }
 
         token_verifier = api.TokenVerifier(
@@ -289,9 +290,6 @@ class LiveKitEventsService:
         except models.Room.DoesNotExist as err:
             raise ActionFailedError(f"Room with ID {room_id} does not exist") from err
 
-        if settings.AUTO_TRANSCRIPTION_ENABLED:
-            self._start_automatic_transcription(room)
-
         if settings.ROOM_TELEPHONY_ENABLED or settings.ROOMKIT_ENABLED:
             try:
                 self.sip_management.ensure_dispatch_rule(room)
@@ -299,6 +297,31 @@ class LiveKitEventsService:
                 raise ActionFailedError(
                     f"Failed to create sip dispatch rule for room {room_id}"
                 ) from e
+
+    def _handle_track_published(self, data):
+        """Start automatic transcription when the first audio track is published."""
+
+        if (
+            not settings.AUTO_TRANSCRIPTION_ENABLED
+            or data.track.type != api.TrackType.AUDIO
+        ):
+            return
+
+        try:
+            room_id = uuid.UUID(data.room.name)
+        except ValueError as e:
+            logger.warning(
+                "Ignoring track event: room name '%s' is not a valid UUID format.",
+                data.room.name,
+            )
+            raise ActionFailedError("Failed to process track published event") from e
+
+        try:
+            room = models.Room.objects.get(id=room_id)
+        except models.Room.DoesNotExist as err:
+            raise ActionFailedError(f"Room with ID {room_id} does not exist") from err
+
+        self._start_automatic_transcription(room)
 
     @staticmethod
     def _start_automatic_transcription(room):

@@ -561,14 +561,12 @@ def test_handle_room_started_creates_dispatch_rule_successfully(
 
 
 @mock.patch.object(WorkerServiceMediator, "start")
-def test_handle_room_started_starts_automatic_transcription(
+def test_handle_audio_track_published_starts_automatic_transcription(
     mock_start, service, settings
 ):
-    """The first room event starts the existing transcript pipeline."""
+    """The first published audio track starts the transcript pipeline."""
     settings.AUTO_TRANSCRIPTION_ENABLED = True
     settings.AUTO_TRANSCRIPTION_LANGUAGE = "zh"
-    settings.ROOM_TELEPHONY_ENABLED = False
-    settings.ROOMKIT_ENABLED = False
     owner = UserFactory()
     room = RoomFactory()
     UserResourceAccessFactory(
@@ -576,8 +574,9 @@ def test_handle_room_started_starts_automatic_transcription(
     )
     mock_data = mock.MagicMock()
     mock_data.room.name = str(room.id)
+    mock_data.track.type = api.TrackType.AUDIO
 
-    service._handle_room_started(mock_data)
+    service._handle_track_published(mock_data)
 
     recording = models.Recording.objects.get(room=room)
     assert recording.mode == models.RecordingModeChoices.TRANSCRIPT
@@ -591,14 +590,12 @@ def test_handle_room_started_starts_automatic_transcription(
 
 
 @mock.patch.object(WorkerServiceMediator, "start")
-def test_handle_room_started_automatic_transcription_is_idempotent(
+def test_handle_audio_track_published_automatic_transcription_is_idempotent(
     mock_start, service, settings
 ):
-    """A retried room_started webhook must not create a second recording."""
+    """Repeated audio track events must not create a second recording."""
     settings.AUTO_TRANSCRIPTION_ENABLED = True
     settings.AUTO_TRANSCRIPTION_LANGUAGE = "zh"
-    settings.ROOM_TELEPHONY_ENABLED = False
-    settings.ROOMKIT_ENABLED = False
     owner = UserFactory()
     room = RoomFactory()
     UserResourceAccessFactory(
@@ -606,12 +603,48 @@ def test_handle_room_started_automatic_transcription_is_idempotent(
     )
     mock_data = mock.MagicMock()
     mock_data.room.name = str(room.id)
+    mock_data.track.type = api.TrackType.AUDIO
 
-    service._handle_room_started(mock_data)
-    service._handle_room_started(mock_data)
+    service._handle_track_published(mock_data)
+    service._handle_track_published(mock_data)
 
     assert models.Recording.objects.filter(room=room).count() == 1
     assert mock_start.call_count == 1
+
+
+@mock.patch.object(WorkerServiceMediator, "start")
+def test_handle_room_started_does_not_start_automatic_transcription(
+    mock_start, service, settings
+):
+    """A room without an audio track must not start an empty transcription."""
+    settings.AUTO_TRANSCRIPTION_ENABLED = True
+    settings.ROOM_TELEPHONY_ENABLED = False
+    settings.ROOMKIT_ENABLED = False
+    room = RoomFactory()
+    mock_data = mock.MagicMock()
+    mock_data.room.name = str(room.id)
+
+    service._handle_room_started(mock_data)
+
+    assert not models.Recording.objects.filter(room=room).exists()
+    mock_start.assert_not_called()
+
+
+@mock.patch.object(WorkerServiceMediator, "start")
+def test_handle_video_track_published_does_not_start_automatic_transcription(
+    mock_start, service, settings
+):
+    """Video-only publication must not start the audio transcription pipeline."""
+    settings.AUTO_TRANSCRIPTION_ENABLED = True
+    room = RoomFactory()
+    mock_data = mock.MagicMock()
+    mock_data.room.name = str(room.id)
+    mock_data.track.type = api.TrackType.VIDEO
+
+    service._handle_track_published(mock_data)
+
+    assert not models.Recording.objects.filter(room=room).exists()
+    mock_start.assert_not_called()
 
 
 @mock.patch.object(SIPManagement, "ensure_dispatch_rule")
