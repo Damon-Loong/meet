@@ -32,6 +32,7 @@ import { ChatProvider } from '@/features/chat/components/ChatProvider'
 import { SyncDevicePreferences } from '@/features/rooms/livekit/components/SyncDevicePreferences'
 import { RoomSilentMicDetector } from '@/features/rooms/components/SilentMicDetector'
 import { LobbyProvider } from '@/features/rooms/components/LobbyProvider'
+import { useScreenWakeLock } from '../hooks/useScreenWakeLock'
 
 /**
  * @public
@@ -75,6 +76,7 @@ const getScreenSharePermissionDeniedScope = (
  */
 export function VideoConference({ ...props }: VideoConferenceProps) {
   useNoiseReduction()
+  useScreenWakeLock()
 
   const { isOpen: isPictureInPictureOpen } = usePictureInPicture()
 
