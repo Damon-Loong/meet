@@ -370,6 +370,15 @@ class MeetingInvitationAdmin(admin.ModelAdmin):
     readonly_fields = ["id", "created_at", "updated_at", "token_digest"]
 
 
+@admin.register(models.AccountContact)
+class AccountContactAdmin(admin.ModelAdmin):
+    list_display = ["name", "email", "owner", "linked_user", "updated_at"]
+    search_fields = ["name", "email", "owner__email", "owner__admin_email"]
+    list_filter = ["created_at", "updated_at"]
+    readonly_fields = ["id", "created_at", "updated_at"]
+    autocomplete_fields = ["owner", "linked_user"]
+
+
 class RecordingAccessInline(admin.TabularInline):
     """Inline admin class for recording accesses."""
 

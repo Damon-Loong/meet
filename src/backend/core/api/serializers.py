@@ -144,6 +144,15 @@ class ListRoomSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "slug"]
 
 
+class AccountContactSerializer(serializers.ModelSerializer):
+    """Serialize reusable meeting contacts for the current account."""
+
+    class Meta:
+        model = models.AccountContact
+        fields = ["id", "name", "email", "linked_user", "updated_at"]
+        read_only_fields = fields
+
+
 class RoomSerializer(serializers.ModelSerializer):
     """Serialize Room model for the API."""
 

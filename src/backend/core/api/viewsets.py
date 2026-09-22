@@ -236,6 +236,23 @@ class RoomViewSet(
     queryset = models.Room.objects.all()
     serializer_class = serializers.RoomSerializer
 
+    @decorators.action(
+        detail=False,
+        methods=["get"],
+        url_path="contacts",
+        permission_classes=[permissions.IsAuthenticated],
+    )
+    def contacts(self, request):
+        """List historical participants belonging to the current account."""
+        queryset = models.AccountContact.objects.filter(owner=request.user).order_by(
+            "-updated_at"
+        )
+        search = request.query_params.get("search", "").strip()
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search) | Q(email__icontains=search))
+        serializer = serializers.AccountContactSerializer(queryset[:100], many=True)
+        return drf_response.Response(serializer.data)
+
     def get_object(self):
         """Allow getting a room by its slug."""
         try:

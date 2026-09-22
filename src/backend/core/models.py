@@ -699,6 +699,51 @@ class MeetingInvitation(BaseModel):
         return f"{self.meeting.topic} - {self.email}"
 
 
+class AccountContact(BaseModel):
+    """A participant previously seen in a meeting owned by one account."""
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="meeting_contacts",
+        verbose_name="所属账号",
+    )
+    name = models.CharField("姓名", max_length=255)
+    email = models.EmailField("邮箱")
+    linked_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="contact_entries",
+        blank=True,
+        null=True,
+        verbose_name="关联登录账号",
+    )
+
+    class Meta:
+        db_table = "meet_account_contact"
+        ordering = ("-updated_at",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["owner", "email"], name="uniq_account_contact_email"
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["owner", "email"], name="acct_contact_owner_email_idx"
+            )
+        ]
+        verbose_name = "账号联系人"
+        verbose_name_plural = "账号联系人"
+
+    def save(self, *args, **kwargs):
+        self.name = self.name.strip()
+        self.email = self.email.strip().lower()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.name} <{self.email}>"
+
+
 class Recording(BaseModel):
     """Model for recordings that take place in a room.
 

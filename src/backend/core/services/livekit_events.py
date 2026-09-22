@@ -29,6 +29,7 @@ from core.recording.services.recording_events import (
 from core.recording.worker.exceptions import RecordingStartError
 from core.recording.worker.factories import get_worker_service
 from core.recording.worker.mediator import WorkerServiceMediator
+from core.tasks.contacts import upsert_account_contact
 
 from .lobby import LobbyService
 from .presence import PresenceCache
@@ -480,6 +481,21 @@ class LiveKitEventsService:
             last_empty_at=None,
         )
 
+        identity = getattr(data.participant, "identity", "")
+        name = getattr(data.participant, "name", "") or identity
+        attributes = getattr(data.participant, "attributes", {}) or {}
+        email = attributes.get("participant_email", "")
+        try:
+            upsert_account_contact.delay(
+                str(room_id),
+                name,
+                email,
+                identity,
+                attributes.get("is_authenticated", "false").lower() == "true",
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Unable to enqueue participant contact for room %s", room_id)
+
         recording = (
             models.Recording.objects.filter(
                 room_id=room_id,
@@ -495,11 +511,6 @@ class LiveKitEventsService:
         if recording is None:
             return
 
-        identity = getattr(data.participant, "identity", "")
-        name = getattr(data.participant, "name", "") or identity
-        email = (getattr(data.participant, "attributes", {}) or {}).get(
-            "participant_email", ""
-        )
         if not identity and not name:
             return
         # LiveKit Egress joins the room as an internal participant whose

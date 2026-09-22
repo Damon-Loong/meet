@@ -3,6 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { Button, Dialog, Field, P, Text } from '@/primitives'
 import { HStack, VStack } from '@/styled-system/jsx'
 import { ApiError } from '@/api/ApiError'
+import { fetchApi } from '@/api/fetchApi'
+
+type AccountContact = {
+  id: string
+  name: string
+  email: string
+}
 
 const localDateTime = (date: Date) => {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
@@ -41,6 +48,9 @@ export const CreateMeetingDialog = ({
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
   const [emails, setEmails] = useState('')
+  const [contacts, setContacts] = useState<AccountContact[]>([])
+  const [contactSearch, setContactSearch] = useState('')
+  const [selectedContactEmails, setSelectedContactEmails] = useState<string[]>([])
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -50,9 +60,26 @@ export const CreateMeetingDialog = ({
       setStart(mode === 'later' ? schedule.start : '')
       setEnd(mode === 'later' ? schedule.end : '')
       setEmails('')
+      setContacts([])
+      setContactSearch('')
+      setSelectedContactEmails([])
       setError('')
+      if (mode === 'later') {
+        void fetchApi<AccountContact[]>('rooms/contacts/')
+          .then(setContacts)
+          .catch(() => setContacts([]))
+      }
     }
   }, [mode])
+
+  const filteredContacts = contacts.filter((contact) => {
+    const search = contactSearch.trim().toLowerCase()
+    return (
+      !search ||
+      contact.name.toLowerCase().includes(search) ||
+      contact.email.toLowerCase().includes(search)
+    )
+  })
 
   return (
     <Dialog
@@ -119,6 +146,62 @@ export const CreateMeetingDialog = ({
               value={emails}
               onChange={setEmails}
             />
+            <VStack alignItems="stretch" gap="0.5rem">
+              <label>
+                <Text>可搜索账号下的历史参会人员</Text>
+                <input
+                  type="search"
+                  value={contactSearch}
+                  placeholder="搜索姓名或邮箱"
+                  onChange={(event) => setContactSearch(event.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    border: '1px solid #777',
+                    borderRadius: '4px',
+                  }}
+                />
+              </label>
+              <VStack
+                alignItems="stretch"
+                gap="0.25rem"
+                maxHeight="10rem"
+                overflowY="auto"
+              >
+                {filteredContacts.map((contact) => (
+                  <label
+                    key={contact.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      padding: '0.4rem 0.25rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedContactEmails.includes(contact.email)}
+                      onChange={(event) =>
+                        setSelectedContactEmails((current) =>
+                          event.target.checked
+                            ? [...current, contact.email]
+                            : current.filter((email) => email !== contact.email)
+                        )
+                      }
+                    />
+                    <span>
+                      {contact.name} &lt;{contact.email}&gt;
+                    </span>
+                  </label>
+                ))}
+                {filteredContacts.length === 0 && (
+                  <Text color="gray.600">
+                    {contactSearch ? '未找到历史参会人员' : '暂无历史参会人员'}
+                  </Text>
+                )}
+              </VStack>
+            </VStack>
           </>
         )}
         {error && (
@@ -154,13 +237,15 @@ export const CreateMeetingDialog = ({
                   topic: topic.trim(),
                   start: start ? new Date(start).toISOString() : undefined,
                   end: end ? new Date(end).toISOString() : undefined,
-                  inviteEmails: emails
-                    .split(/[\s,;，；]+/)
-                    .map((email) => email.trim().toLowerCase())
-                    .filter(
-                      (email, index, values) =>
-                        Boolean(email) && values.indexOf(email) === index
-                    ),
+                  inviteEmails: Array.from(
+                    new Set([
+                      ...selectedContactEmails,
+                      ...emails
+                        .split(/[\s,;，；]+/)
+                        .map((email) => email.trim().toLowerCase())
+                        .filter(Boolean),
+                    ])
+                  ),
                 })
               } catch (cause) {
                 const body = cause instanceof ApiError ? cause.body : undefined
