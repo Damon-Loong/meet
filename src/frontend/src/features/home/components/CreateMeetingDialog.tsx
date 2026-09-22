@@ -4,6 +4,7 @@ import { Button, Dialog, Field, P, Text } from '@/primitives'
 import { HStack, VStack } from '@/styled-system/jsx'
 import { ApiError } from '@/api/ApiError'
 import { fetchApi } from '@/api/fetchApi'
+import { RiSearchLine } from '@remixicon/react'
 
 type AccountContact = {
   id: string
@@ -23,6 +24,17 @@ const defaultSchedule = () => {
     end: localDateTime(new Date(startTime.getTime() + 60 * 60000)),
   }
 }
+
+const parseEmails = (value: string) =>
+  Array.from(
+    new Set(
+      value
+        .split(/[\s,;，；]+/)
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  )
+
 export type MeetingCreationMode = 'instant' | 'later'
 
 type CreateMeetingDialogProps = {
@@ -50,7 +62,8 @@ export const CreateMeetingDialog = ({
   const [emails, setEmails] = useState('')
   const [contacts, setContacts] = useState<AccountContact[]>([])
   const [contactSearch, setContactSearch] = useState('')
-  const [selectedContactEmails, setSelectedContactEmails] = useState<string[]>([])
+  const [isContactPickerOpen, setIsContactPickerOpen] = useState(false)
+  const [draftContactEmails, setDraftContactEmails] = useState<string[]>([])
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -62,7 +75,8 @@ export const CreateMeetingDialog = ({
       setEmails('')
       setContacts([])
       setContactSearch('')
-      setSelectedContactEmails([])
+      setIsContactPickerOpen(false)
+      setDraftContactEmails([])
       setError('')
       if (mode === 'later') {
         void fetchApi<AccountContact[]>('rooms/contacts/')
@@ -81,19 +95,40 @@ export const CreateMeetingDialog = ({
     )
   })
 
+  const openContactPicker = () => {
+    const currentEmails = parseEmails(emails)
+    setDraftContactEmails(
+      contacts
+        .filter((contact) => currentEmails.includes(contact.email))
+        .map((contact) => contact.email)
+    )
+    setContactSearch('')
+    setIsContactPickerOpen(true)
+  }
+
+  const confirmContacts = () => {
+    const contactEmails = new Set(contacts.map((contact) => contact.email))
+    const manuallyEnteredEmails = parseEmails(emails).filter(
+      (email) => !contactEmails.has(email)
+    )
+    setEmails([...manuallyEnteredEmails, ...draftContactEmails].join(', '))
+    setIsContactPickerOpen(false)
+  }
+
   return (
-    <Dialog
-      title={t(mode === 'later' ? 'laterTitle' : 'instantTitle')}
-      isOpen={mode !== null}
-      onOpenChange={onOpenChange}
-      role="dialog"
-      type="flex"
-    >
-      <VStack
-        alignItems="stretch"
-        gap="1rem"
-        width="min(28rem, calc(100vw - 4rem))"
+    <>
+      <Dialog
+        title={t(mode === 'later' ? 'laterTitle' : 'instantTitle')}
+        isOpen={mode !== null}
+        onOpenChange={onOpenChange}
+        role="dialog"
+        type="flex"
       >
+        <VStack
+          alignItems="stretch"
+          gap="1rem"
+          width="min(28rem, calc(100vw - 4rem))"
+        >
         <P>{t('description')}</P>
         <Field
           type="text"
@@ -139,69 +174,49 @@ export const CreateMeetingDialog = ({
                 }}
               />
             </label>
-            <Field
-              type="text"
-              label="邀请人邮箱（选填）"
-              description="多个邮箱请使用逗号、分号或换行分隔。"
-              value={emails}
-              onChange={setEmails}
-            />
-            <VStack alignItems="stretch" gap="0.5rem">
-              <label>
-                <Text>可搜索账号下的历史参会人员</Text>
+            <label>
+              <Text>邀请</Text>
+              <div style={{ position: 'relative' }}>
                 <input
-                  type="search"
-                  value={contactSearch}
-                  placeholder="搜索姓名或邮箱"
-                  onChange={(event) => setContactSearch(event.target.value)}
+                  type="text"
+                  value={emails}
+                  placeholder="输入邮箱，或从联系人中选择"
+                  onChange={(event) => setEmails(event.target.value)}
                   style={{
                     width: '100%',
                     padding: '0.75rem',
+                    paddingRight: '3rem',
                     border: '1px solid #777',
                     borderRadius: '4px',
                   }}
                 />
-              </label>
-              <VStack
-                alignItems="stretch"
-                gap="0.25rem"
-                maxHeight="10rem"
-                overflowY="auto"
-              >
-                {filteredContacts.map((contact) => (
-                  <label
-                    key={contact.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.4rem 0.25rem',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedContactEmails.includes(contact.email)}
-                      onChange={(event) =>
-                        setSelectedContactEmails((current) =>
-                          event.target.checked
-                            ? [...current, contact.email]
-                            : current.filter((email) => email !== contact.email)
-                        )
-                      }
-                    />
-                    <span>
-                      {contact.name} &lt;{contact.email}&gt;
-                    </span>
-                  </label>
-                ))}
-                {filteredContacts.length === 0 && (
-                  <Text color="gray.600">
-                    {contactSearch ? '未找到历史参会人员' : '暂无历史参会人员'}
-                  </Text>
-                )}
-              </VStack>
-            </VStack>
+                <button
+                  type="button"
+                  aria-label="选择联系人"
+                  title="选择联系人"
+                  onClick={openContactPicker}
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    right: '0.5rem',
+                    transform: 'translateY(-50%)',
+                    display: 'grid',
+                    placeItems: 'center',
+                    width: '2rem',
+                    height: '2rem',
+                    padding: 0,
+                    border: 0,
+                    background: 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <RiSearchLine size={22} />
+                </button>
+              </div>
+              <Text color="gray.600">
+                多个邮箱请使用逗号、分号或换行分隔。
+              </Text>
+            </label>
           </>
         )}
         {error && (
@@ -237,15 +252,7 @@ export const CreateMeetingDialog = ({
                   topic: topic.trim(),
                   start: start ? new Date(start).toISOString() : undefined,
                   end: end ? new Date(end).toISOString() : undefined,
-                  inviteEmails: Array.from(
-                    new Set([
-                      ...selectedContactEmails,
-                      ...emails
-                        .split(/[\s,;，；]+/)
-                        .map((email) => email.trim().toLowerCase())
-                        .filter(Boolean),
-                    ])
-                  ),
+                  inviteEmails: parseEmails(emails),
                 })
               } catch (cause) {
                 const body = cause instanceof ApiError ? cause.body : undefined
@@ -278,7 +285,93 @@ export const CreateMeetingDialog = ({
               : t(mode === 'later' ? 'createLater' : 'startNow')}
           </Button>
         </HStack>
-      </VStack>
-    </Dialog>
+        </VStack>
+      </Dialog>
+
+      <Dialog
+        title="选择联系人"
+        isOpen={isContactPickerOpen}
+        onOpenChange={setIsContactPickerOpen}
+        role="dialog"
+        type="flex"
+      >
+        <VStack
+          alignItems="stretch"
+          gap="1rem"
+          width="min(28rem, calc(100vw - 4rem))"
+        >
+          <label>
+            <Text>搜索联系人</Text>
+            <input
+              type="search"
+              value={contactSearch}
+              placeholder="输入姓名或邮箱"
+              onChange={(event) => setContactSearch(event.target.value)}
+              autoFocus
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '1px solid #777',
+                borderRadius: '4px',
+              }}
+            />
+          </label>
+          <VStack
+            alignItems="stretch"
+            gap="0.25rem"
+            minHeight="8rem"
+            maxHeight="18rem"
+            overflowY="auto"
+          >
+            {filteredContacts.map((contact) => (
+              <label
+                key={contact.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                  padding: '0.65rem 0.5rem',
+                  borderBottom: '1px solid #ddd',
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={draftContactEmails.includes(contact.email)}
+                  onChange={(event) =>
+                    setDraftContactEmails((current) =>
+                      event.target.checked
+                        ? [...current, contact.email]
+                        : current.filter((email) => email !== contact.email)
+                    )
+                  }
+                />
+                <span>
+                  <strong>{contact.name}</strong>
+                  <br />
+                  {contact.email}
+                </span>
+              </label>
+            ))}
+            {filteredContacts.length === 0 && (
+              <Text color="gray.600">
+                {contactSearch ? '未找到联系人' : '暂无历史参会人员'}
+              </Text>
+            )}
+          </VStack>
+          <HStack justifyContent="end">
+            <Button
+              variant="secondary"
+              onPress={() => setIsContactPickerOpen(false)}
+            >
+              取消
+            </Button>
+            <Button variant="primary" onPress={confirmContacts}>
+              确定
+            </Button>
+          </HStack>
+        </VStack>
+      </Dialog>
+    </>
   )
 }
