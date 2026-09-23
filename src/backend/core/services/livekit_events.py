@@ -2,12 +2,14 @@
 
 # pylint: disable=no-member
 
+import json
 import re
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from logging import getLogger
 
+from asgiref.sync import async_to_sync
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
@@ -345,6 +347,7 @@ class LiveKitEventsService:
             "language": settings.AUTO_TRANSCRIPTION_LANGUAGE,
             "transcribe": True,
             "automatic": True,
+            "participants": [],
         }
 
         try:
@@ -366,6 +369,24 @@ class LiveKitEventsService:
             )
             return
 
+        try:
+            participants_response = LiveKitEventsService._list_livekit_participants(
+                str(room.id)
+            )
+            LiveKitEventsService._merge_recording_participants(
+                recording,
+                [
+                    LiveKitEventsService._participant_details(participant)
+                    for participant in participants_response.participants
+                ],
+            )
+            recording.refresh_from_db(fields=["options"])
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Unable to collect participants for automatic transcription in room %s",
+                room.id,
+            )
+
         worker_manager = WorkerServiceMediator(
             worker_service=get_worker_service(mode=recording.mode)
         )
@@ -384,6 +405,71 @@ class LiveKitEventsService:
             room.id,
             recording.id,
         )
+
+    @staticmethod
+    @async_to_sync
+    async def _list_livekit_participants(room_name):
+        """Return the participants currently connected to a LiveKit room."""
+        lkapi = utils.create_livekit_client()
+        try:
+            return await lkapi.room.list_participants(
+                api.ListParticipantsRequest(room=room_name)
+            )
+        finally:
+            await lkapi.aclose()
+
+    @staticmethod
+    def _participant_details(participant):
+        """Return the meeting name and email stored in a LiveKit participant."""
+        identity = getattr(participant, "identity", "") or ""
+        name = getattr(participant, "name", "") or identity
+        attributes = getattr(participant, "attributes", {}) or {}
+        if isinstance(attributes, str):
+            try:
+                attributes = json.loads(attributes)
+            except ValueError:
+                attributes = {}
+        return {
+            "identity": identity,
+            "name": name,
+            "email": attributes.get("participant_email", ""),
+        }
+
+    @staticmethod
+    def _merge_recording_participants(recording, participants):
+        """Merge participants without overwriting concurrent join events."""
+        participants = [
+            item
+            for item in participants
+            if item.get("identity")
+            and not item["identity"].upper().startswith("EG_")
+            and not str(item.get("name") or "").upper().startswith("EG_")
+        ]
+        if not participants:
+            return
+
+        with transaction.atomic():
+            recording = models.Recording.objects.select_for_update().get(
+                pk=recording.pk
+            )
+            current = recording.options.setdefault("participants", [])
+            for participant in participants:
+                existing = next(
+                    (
+                        item
+                        for item in current
+                        if item.get("identity") == participant["identity"]
+                    ),
+                    None,
+                )
+                if existing:
+                    existing.update(
+                        name=participant.get("name") or existing.get("name"),
+                        email=participant.get("email") or existing.get("email", ""),
+                    )
+                else:
+                    current.append(participant)
+            recording.save(update_fields=["options"])
 
     def _handle_room_finished(self, data):
         """Handle 'room_finished' event."""
@@ -518,13 +604,7 @@ class LiveKitEventsService:
         if identity.upper().startswith("EG_") or name.upper().startswith("EG_"):
             return
 
-        participants = recording.options.setdefault("participants", [])
-        existing = next(
-            (item for item in participants if item.get("identity") == identity), None
+        self._merge_recording_participants(
+            recording,
+            [{"identity": identity, "name": name, "email": email}],
         )
-        if existing:
-            existing.update(name=name, email=email or existing.get("email", ""))
-        else:
-            participants.append({"identity": identity, "name": name, "email": email})
-        if email or not existing:
-            recording.save(update_fields=["options"])
