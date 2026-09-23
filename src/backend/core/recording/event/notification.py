@@ -358,7 +358,10 @@ class NotificationService:
         owner_sub = str(owner.sub or owner.id)
 
         try:
-            participants = MeetingParticipantsCache().get(recording.room_id)
+            participants = MeetingParticipantsCache().get(
+                recording.room_id,
+                recording.options.get("livekit_room_sid", ""),
+            )
         except Exception:  # noqa: BLE001
             logger.exception(
                 "Unable to load attendee roster for room %s", recording.room_id

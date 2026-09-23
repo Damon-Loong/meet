@@ -20,9 +20,16 @@ class MeetingParticipantsCache:
     def _redis(write: bool = True):
         return cache.client.get_client(write=write)
 
-    def add(self, room_id: UUID | str, identity: str, name: str, email: str = ""):
-        """Add or refresh a participant, keyed by LiveKit identity."""
-        if not identity:
+    def add(
+        self,
+        room_id: UUID | str,
+        room_sid: str,
+        identity: str,
+        name: str,
+        email: str = "",
+    ):
+        """Add or refresh a participant, keyed by LiveKit room and identity."""
+        if not room_sid or not identity:
             return
 
         attendee = {
@@ -32,15 +39,26 @@ class MeetingParticipantsCache:
         }
         key = self._get_key(room_id)
         pipe = self._redis().pipeline(transaction=False)
-        pipe.hset(key, identity, json.dumps(attendee, ensure_ascii=False))
+        pipe.hset(
+            key, f"{room_sid}:{identity}", json.dumps(attendee, ensure_ascii=False)
+        )
         pipe.expire(key, self.FALLBACK_TTL_SECONDS)
         pipe.execute()
 
-    def get(self, room_id: UUID | str) -> list[dict[str, str]]:
-        """Return the attendees captured for a meeting, in Redis hash order."""
+    def get(self, room_id: UUID | str, room_sid: str) -> list[dict[str, str]]:
+        """Return attendees captured during one LiveKit room instance."""
         entries = self._redis(write=False).hgetall(self._get_key(room_id))
         attendees = []
-        for value in entries.values():
+        prefix = f"{room_sid}:"
+        for field, value in entries.items():
+            if isinstance(field, bytes):
+                field = field.decode("utf-8")
+            # A missing SID identifies recordings created before this change.
+            if room_sid and not field.startswith(prefix):
+                continue
+            if not room_sid and ":" in field:
+                continue
+
             if isinstance(value, bytes):
                 value = value.decode("utf-8")
             try:

@@ -82,6 +82,7 @@ def test_participant_joined_caches_roster_without_a_recording(
     room = RoomFactory()
     data = mock.MagicMock()
     data.room.name = str(room.id)
+    data.room.sid = "RM_test"
     data.participant.identity = "guest-1"
     data.participant.name = "Long"
     participant = ParticipantInfo()
@@ -91,7 +92,7 @@ def test_participant_joined_caches_roster_without_a_recording(
 
     service._handle_participant_joined(data)
 
-    assert MeetingParticipantsCache().get(room.id) == [
+    assert MeetingParticipantsCache().get(room.id, "RM_test") == [
         {
             "identity": "guest-1",
             "name": "Long",
@@ -604,6 +605,7 @@ def test_handle_audio_track_published_starts_automatic_transcription(
     )
     mock_data = mock.MagicMock()
     mock_data.room.name = str(room.id)
+    mock_data.room.sid = "RM_test"
     mock_data.track.type = api.TrackType.AUDIO
 
     service._handle_track_published(mock_data)
@@ -614,6 +616,7 @@ def test_handle_audio_track_published_starts_automatic_transcription(
         "language": "zh",
         "transcribe": True,
         "automatic": True,
+        "livekit_room_sid": "RM_test",
     }
     assert recording.accesses.get().user == owner
     mock_start.assert_called_once_with(recording)
@@ -633,6 +636,7 @@ def test_handle_audio_track_published_automatic_transcription_is_idempotent(
     )
     mock_data = mock.MagicMock()
     mock_data.room.name = str(room.id)
+    mock_data.room.sid = "RM_test"
     mock_data.track.type = api.TrackType.AUDIO
 
     service._handle_track_published(mock_data)

@@ -326,10 +326,10 @@ class LiveKitEventsService:
         except models.Room.DoesNotExist as err:
             raise ActionFailedError(f"Room with ID {room_id} does not exist") from err
 
-        self._start_automatic_transcription(room)
+        self._start_automatic_transcription(room, data.room.sid)
 
     @staticmethod
-    def _start_automatic_transcription(room):
+    def _start_automatic_transcription(room, room_sid):
         """Start the existing transcript recording pipeline for a new room."""
 
         owner_access = (
@@ -349,6 +349,7 @@ class LiveKitEventsService:
             "language": settings.AUTO_TRANSCRIPTION_LANGUAGE,
             "transcribe": True,
             "automatic": True,
+            "livekit_room_sid": room_sid,
         }
 
         try:
@@ -499,7 +500,7 @@ class LiveKitEventsService:
         if identity:
             try:
                 self.meeting_participants_cache.add(
-                    room_id, identity, name, email
+                    room_id, data.room.sid, identity, name, email
                 )
             except Exception:  # noqa: BLE001
                 # Redis bookkeeping must never block joining or room activity.
