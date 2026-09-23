@@ -20,6 +20,7 @@ from livekit import api as livekit_api
 
 from core import models, utils
 from core.analytics import UserFeatureFlag, is_user_feature_flag_enabled
+from core.services.meeting_participants import MeetingParticipantsCache
 from core.utils import generate_download_s3_url
 
 logger = logging.getLogger(__name__)
@@ -356,6 +357,14 @@ class NotificationService:
             return False
         owner_sub = str(owner.sub or owner.id)
 
+        try:
+            participants = MeetingParticipantsCache().get(recording.room_id)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Unable to load attendee roster for room %s", recording.room_id
+            )
+            participants = []
+
         started_at, ended_at = async_to_sync(
             NotificationService._get_recording_timestamps
         )(recording.worker_id)
@@ -380,11 +389,11 @@ class NotificationService:
                 ),
                 "started_at": started_at.isoformat(),
                 "ended_at": ended_at.isoformat(),
-                "participants": recording.options.get("participants", []),
+                "participants": participants,
             }
         recipient_emails = {notification_email.lower()}
-        for participant in recording.options.get("participants", []):
-            participant_email = participant.get("email", "").strip().lower()
+        for participant in participants:
+            participant_email = (participant.get("email") or "").strip().lower()
             if participant_email:
                 recipient_emails.add(participant_email)
 

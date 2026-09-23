@@ -2,6 +2,7 @@
 
 import hashlib
 import html
+import logging
 import secrets
 from datetime import timezone as datetime_timezone
 from email.utils import parseaddr
@@ -14,6 +15,9 @@ from django.utils import timezone
 from rest_framework.exceptions import NotFound
 
 from core import models
+from core.services.meeting_participants import MeetingParticipantsCache
+
+logger = logging.getLogger(__name__)
 
 
 class SchedulingService:
@@ -232,6 +236,10 @@ class SchedulingService:
         meeting = room.scheduled_meeting
         meeting.status = models.ScheduledMeetingStatusChoices.CANCELLED
         meeting.save(update_fields=["status", "updated_at"])
+        try:
+            MeetingParticipantsCache().clear(room.id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Unable to clear attendee cache for cancelled room %s", room.id)
         for invitation in meeting.invitations.all():
             message = EmailMultiAlternatives(
                 f"AfB Meet会议已取消：{meeting.topic}",

@@ -1,5 +1,6 @@
 """Periodic reminders and room expiry."""
 
+import logging
 from datetime import timedelta
 
 from django.db.models import Q
@@ -7,7 +8,10 @@ from django.utils import timezone
 
 from core import models
 from core.services.scheduling import SchedulingService
+from core.services.meeting_participants import MeetingParticipantsCache
 from core.tasks._task import task
+
+logger = logging.getLogger(__name__)
 
 
 @task(name="core.process_scheduled_meetings")
@@ -64,3 +68,14 @@ def process_scheduled_meetings():
         room__lifecycle_status=models.RoomLifecycleStatusChoices.EXPIRED,
         status=models.ScheduledMeetingStatusChoices.SCHEDULED,
     ).update(status=models.ScheduledMeetingStatusChoices.FINISHED)
+
+    expired_room_ids = models.Room.objects.filter(
+        lifecycle_status=models.RoomLifecycleStatusChoices.EXPIRED,
+        expired_at=now,
+    ).values_list("id", flat=True)
+    participant_cache = MeetingParticipantsCache()
+    for room_id in expired_room_ids:
+        try:
+            participant_cache.clear(room_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Unable to clear attendee cache for room %s", room_id)

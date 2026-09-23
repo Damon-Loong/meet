@@ -26,6 +26,7 @@ from core.services.livekit_events import (
     api,
 )
 from core.services.lobby import LobbyService
+from core.services.meeting_participants import MeetingParticipantsCache
 from core.services.room_management import RoomManagementException
 from core.services.sip_management import (
     SIPException,
@@ -70,6 +71,34 @@ def test_initialization(
     assert isinstance(service.lobby_service, LobbyService)
     assert isinstance(service.sip_management, SIPManagement)
     assert isinstance(service.recording_events, RecordingEventsService)
+
+
+@mock.patch("core.tasks.contacts.upsert_account_contact.delay")
+def test_participant_joined_caches_roster_without_a_recording(
+    mock_upsert_contact, service
+):
+    """Meeting attendance is captured whether or not transcription is running."""
+    room = RoomFactory()
+    data = mock.MagicMock()
+    data.room.name = str(room.id)
+    data.participant.identity = "guest-1"
+    data.participant.name = "Long"
+    data.participant.attributes = {
+        "participant_email": "long@example.com",
+        "is_authenticated": "false",
+    }
+
+    service._handle_participant_joined(data)
+
+    assert MeetingParticipantsCache().get(room.id) == [
+        {
+            "identity": "guest-1",
+            "name": "Long",
+            "email": "long@example.com",
+        }
+    ]
+    assert models.Recording.objects.filter(room=room).count() == 0
+    mock_upsert_contact.assert_called_once()
 
 
 @pytest.mark.parametrize(
