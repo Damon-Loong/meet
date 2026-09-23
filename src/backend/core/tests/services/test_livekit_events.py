@@ -8,6 +8,7 @@ from unittest import mock
 
 import pytest
 from livekit.api import EgressStatus
+from livekit.protocol.models import ParticipantInfo
 
 from core import models
 from core.factories import (
@@ -83,10 +84,10 @@ def test_participant_joined_caches_roster_without_a_recording(
     data.room.name = str(room.id)
     data.participant.identity = "guest-1"
     data.participant.name = "Long"
-    data.participant.attributes = {
-        "participant_email": "long@example.com",
-        "is_authenticated": "false",
-    }
+    participant = ParticipantInfo()
+    participant.attributes["participant_email"] = "long@example.com"
+    participant.attributes["is_authenticated"] = "false"
+    data.participant.attributes = participant.attributes
 
     service._handle_participant_joined(data)
 

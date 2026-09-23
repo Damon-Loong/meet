@@ -5,6 +5,7 @@
 import json
 import re
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from enum import Enum
 from logging import getLogger
@@ -491,7 +492,7 @@ class LiveKitEventsService:
                 attributes = json.loads(attributes)
             except ValueError:
                 attributes = {}
-        if not isinstance(attributes, dict):
+        if not isinstance(attributes, Mapping):
             attributes = {}
         email = attributes.get("participant_email", "")
 
