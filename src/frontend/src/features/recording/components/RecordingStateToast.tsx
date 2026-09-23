@@ -1,6 +1,6 @@
 import { css } from '@/styled-system/css'
 import { useTranslation } from 'react-i18next'
-import { useMemo, useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 import { Text } from '@/primitives'
 import {
   RecordingMode,
@@ -22,7 +22,7 @@ export const RecordingStateToast = () => {
 
   const { openTranscript, openScreenRecording } = useSidePanel()
 
-  const lastKeyRef = useRef('')
+  const lastKeysRef = useRef({ screen: '', transcript: '' })
   const announce = useScreenReaderAnnounce()
 
   const hasTranscriptAccess = useHasRecordingAccess(
@@ -44,48 +44,35 @@ export const RecordingStateToast = () => {
   const { isStarted: isTranscriptStarted, isActive: isTranscriptActive } =
     useRecordingStatuses(RecordingMode.Transcript)
 
-  const isStarted = isScreenRecordingStarted || isTranscriptStarted
-
   const metadata = useRoomMetadata()
   const isRecording = useIsRecording()
 
-  const key = useMemo(() => {
-    if (
-      metadata?.recording_status &&
-      metadata?.recording_mode &&
-      (isScreenRecordingStarting || isScreenRecordingStarted)
-    ) {
-      let status = metadata.recording_status
-      if (isScreenRecordingStarted && !isRecording) {
-        status = 'starting'
-      }
-      return `${metadata.recording_mode}.${status}`
-    }
+  const screenKey =
+    metadata?.recording_status &&
+    metadata?.recording_mode &&
+    (isScreenRecordingStarting || isScreenRecordingStarted)
+      ? `${metadata.recording_mode}.${isScreenRecordingStarted && !isRecording ? 'starting' : metadata.recording_status}`
+      : undefined
 
-    if (metadata?.transcription_status && isTranscriptActive) {
-      return `${RecordingMode.Transcript}.${metadata.transcription_status}`
-    }
-
-    return undefined
-  }, [
-    metadata,
-    isRecording,
-    isScreenRecordingStarted,
-    isScreenRecordingStarting,
-    isTranscriptActive,
-  ])
+  const transcriptKey =
+    metadata?.transcription_status && isTranscriptActive
+      ? `${RecordingMode.Transcript}.${metadata.transcription_status}`
+      : undefined
 
   // Update screen reader message only when the key actually changes
   // This prevents duplicate announcements caused by re-renders
   useEffect(() => {
-    if (key && key !== lastKeyRef.current) {
-      lastKeyRef.current = key
-      const message = t(key)
-      announce(message)
+    if (screenKey && screenKey !== lastKeysRef.current.screen) {
+      lastKeysRef.current.screen = screenKey
+      announce(t(screenKey))
     }
-  }, [announce, key, t])
+    if (transcriptKey && transcriptKey !== lastKeysRef.current.transcript) {
+      lastKeysRef.current.transcript = transcriptKey
+      announce(t(transcriptKey))
+    }
+  }, [announce, screenKey, transcriptKey, t])
 
-  if (!key) return null
+  if (!screenKey && !transcriptKey) return null
 
   const hasScreenRecordingAccessAndActive =
     isScreenRecordingActive && hasScreenRecordingAccess
@@ -101,55 +88,89 @@ export const RecordingStateToast = () => {
           position: 'fixed',
           top: '10px',
           left: '10px',
-          paddingY: '0.25rem',
-          paddingX: '0.75rem 0.75rem',
-          backgroundColor: 'danger.700',
-          borderColor: 'white',
-          border: '1px solid',
-          color: 'white',
-          borderRadius: '4px',
           gap: '0.5rem',
+          flexWrap: 'wrap',
         })}
       >
-        <RecordingStatusIcon
-          isStarted={isStarted}
-          isTranscriptActive={isTranscriptActive}
-        />
-
-        {!hasScreenRecordingAccessAndActive &&
-          !hasTranscriptAccessAndActive && (
-            <Text
-              variant={'sm'}
-              className={css({
-                fontWeight: '500 !important',
-              })}
-            >
-              {t(key)}
-            </Text>
-          )}
-        {hasScreenRecordingAccessAndActive && (
-          <RACButton
-            onPress={openScreenRecording}
+        {screenKey && (
+          <div
             className={css({
-              textStyle: 'sm !important',
-              fontWeight: '500 !important',
-              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              paddingY: '0.25rem',
+              paddingX: '0.75rem 0.75rem',
+              backgroundColor: 'danger.700',
+              borderColor: 'white',
+              border: '1px solid',
+              color: 'white',
+              borderRadius: '4px',
             })}
           >
-            {t(key)}
-          </RACButton>
+            <RecordingStatusIcon
+              isStarted={isScreenRecordingStarted}
+              isTranscriptActive={false}
+            />
+            {hasScreenRecordingAccessAndActive ? (
+              <RACButton
+                onPress={openScreenRecording}
+                className={css({
+                  textStyle: 'sm !important',
+                  fontWeight: '500 !important',
+                  cursor: 'pointer',
+                })}
+              >
+                {t(screenKey)}
+              </RACButton>
+            ) : (
+              <Text
+                variant="sm"
+                className={css({ fontWeight: '500 !important' })}
+              >
+                {t(screenKey)}
+              </Text>
+            )}
+          </div>
         )}
-        {hasTranscriptAccessAndActive && (
-          <RACButton
-            onPress={openTranscript}
+        {transcriptKey && (
+          <div
             className={css({
-              textStyle: 'sm !important',
-              fontWeight: '500 !important',
-              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              paddingY: '0.25rem',
+              paddingX: '0.75rem',
+              backgroundColor: 'danger.700',
+              borderColor: 'white',
+              border: '1px solid',
+              color: 'white',
+              borderRadius: '4px',
             })}
           >
-            {t(key)}
-          </RACButton>
+            <RecordingStatusIcon
+              isStarted={isTranscriptStarted}
+              isTranscriptActive={true}
+            />
+            {hasTranscriptAccessAndActive ? (
+              <RACButton
+                onPress={openTranscript}
+                className={css({
+                  textStyle: 'sm !important',
+                  fontWeight: '500 !important',
+                  cursor: 'pointer',
+                })}
+              >
+                {t(transcriptKey)}
+              </RACButton>
+            ) : (
+              <Text
+                variant="sm"
+                className={css({ fontWeight: '500 !important' })}
+              >
+                {t(transcriptKey)}
+              </Text>
+            )}
+          </div>
         )}
       </div>
     </>

@@ -349,6 +349,7 @@ class LiveKitEventsService:
             "language": settings.AUTO_TRANSCRIPTION_LANGUAGE,
             "transcribe": True,
             "automatic": True,
+            "collect_metadata": settings.METADATA_COLLECTOR_ENABLED,
             "livekit_room_sid": room_sid,
         }
 
@@ -383,6 +384,15 @@ class LiveKitEventsService:
             raise ActionFailedError(
                 f"Failed to start automatic transcription for room {room.id}"
             ) from exc
+
+        if settings.METADATA_COLLECTOR_ENABLED:
+            try:
+                MetadataCollectorService().start(recording)
+            except MetadataCollectorException:
+                logger.warning(
+                    "Unable to start voice activity collection for recording %s",
+                    recording.id,
+                )
 
         logger.info(
             "Automatic transcription started for room %s (recording %s)",

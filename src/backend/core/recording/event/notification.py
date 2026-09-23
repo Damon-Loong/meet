@@ -404,6 +404,7 @@ class NotificationService:
             "user_sub": owner_sub,
             "user_email": notification_email,
             "recipient_emails": sorted(recipient_emails),
+            "media_recording_id": str(recording.id),
             "cloud_storage_url": generate_download_s3_url(
                 recording.key,
                 expires_in=settings.SUMMARY_SERVICE_CLOUD_STORAGE_SIGNED_URL_EXPIRY_SECONDS,

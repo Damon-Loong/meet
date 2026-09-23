@@ -693,6 +693,7 @@ def process_audio_transcribe_v2_task(
                     user_sub=payload.user_sub,
                     user_email=payload.user_email,
                     recipient_emails=payload.recipient_emails,
+                    media_recording_id=payload.media_recording_id,
                     push_to_docs_config=PushToDocsBaseConfig(
                         user_email=payload.push_to_docs_config.user_email,
                         title=locale.summary_title_template.format(
@@ -809,6 +810,13 @@ def summarize_v2_task(
             title=payload.push_to_docs_config.title,
             transcript=payload.content,
             summary=summary,
+            media_recording_id=payload.media_recording_id,
+            webhook_url=str(
+                settings.get_authorized_tenant(tenant_id=payload.tenant_id).webhook_url
+            ),
+            webhook_api_key=settings.get_authorized_tenant(
+                tenant_id=payload.tenant_id
+            ).webhook_api_key.get_secret_value(),
         )
 
     if _should_push_to_docs(payload):

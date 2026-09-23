@@ -78,12 +78,12 @@ class MetadataEvent:
 class VADAgent(Agent):
     """Agent that monitors voice activity for a specific participant."""
 
-    def __init__(self, participant_identity: str, events: List):
-        """Initialize with a participant identity and shared events list."""
+    def __init__(self, participant_id: str, events: List):
+        """Initialize with a per-connection LiveKit SID and shared events list."""
         super().__init__(
             instructions="not-needed",
         )
-        self.participant_identity = participant_identity
+        self.participant_id = participant_id
         self.events = events
 
     async def on_enter(self) -> None:
@@ -95,7 +95,7 @@ class VADAgent(Agent):
 
             if event.new_state == "speaking":
                 event = MetadataEvent(
-                    participant_id=self.participant_identity,
+                    participant_id=self.participant_id,
                     type="speech_start",
                     timestamp=timestamp,
                 )
@@ -103,7 +103,7 @@ class VADAgent(Agent):
 
             elif event.old_state == "speaking":
                 event = MetadataEvent(
-                    participant_id=self.participant_identity,
+                    participant_id=self.participant_id,
                     type="speech_end",
                     timestamp=timestamp,
                 )
@@ -162,9 +162,11 @@ class MetadataCollector:
         full_text = await reader.read_all()
         logger.info("Received chat message from %s", participant_identity)
 
+        participant = self.ctx.room.remote_participants.get(participant_identity)
+        participant_id = participant.sid if participant else participant_identity
         self.events.append(
             MetadataEvent(
-                participant_id=participant_identity,
+                participant_id=participant_id,
                 type="chat_received",
                 timestamp=datetime.now(timezone.utc),
                 data=full_text,
@@ -240,53 +242,55 @@ class MetadataCollector:
         self, ctx: JobContext, participant: rtc.RemoteParticipant
     ):
         """Handle new participant by starting a VAD monitoring session."""
-        if participant.identity in self._sessions:
-            logger.debug("Session already exists for %s", participant.identity)
+        participant_id = participant.sid
+        if participant_id in self._sessions:
+            logger.debug("Session already exists for %s", participant_id)
             return
 
         self.events.append(
             MetadataEvent(
-                participant_id=participant.identity,
+                participant_id=participant_id,
                 type="participant_connected",
                 timestamp=datetime.now(timezone.utc),
             )
         )
 
-        self.participants[participant.identity] = participant.name
+        self.participants[participant_id] = participant.name
 
-        logger.info("New participant connected: %s", participant.identity)
+        logger.info("New participant connected: %s", participant_id)
         try:
             session = await self._start_session(participant)
-            self._sessions[participant.identity] = session
+            self._sessions[participant_id] = session
         except Exception:
-            logger.exception("Failed to start session for %s", participant.identity)
+            logger.exception("Failed to start session for %s", participant_id)
 
     def on_participant_disconnected(self, participant: rtc.RemoteParticipant):
         """Handle participant disconnection by closing VAD monitoring."""
+        participant_id = participant.sid
         self.events.append(
             MetadataEvent(
-                participant_id=participant.identity,
+                participant_id=participant_id,
                 type="participant_disconnected",
                 timestamp=datetime.now(timezone.utc),
             )
         )
 
-        session = self._sessions.pop(participant.identity, None)
+        session = self._sessions.pop(participant_id, None)
         if session is None:
-            logger.debug("No session found for %s", participant.identity)
+            logger.debug("No session found for %s", participant_id)
             return
 
-        logger.info("Participant disconnected: %s", participant.identity)
+        logger.info("Participant disconnected: %s", participant_id)
         task = asyncio.create_task(self._close_session(session))
         self._tasks.add(task)
         task.add_done_callback(
             done_callback(
                 logger,
                 self._tasks,
-                f"close VAD session for {participant.identity}",
+                f"close VAD session for {participant_id}",
                 on_success=lambda _: logger.info(
                     "VAD session closed for %s (remaining sessions: %d)",
-                    participant.identity,
+                    participant_id,
                     len(self._sessions),
                 ),
             )
@@ -294,13 +298,13 @@ class MetadataCollector:
 
     def on_participant_name_changed(self, participant: rtc.RemoteParticipant):
         """Update stored participant name when it changes."""
-        logger.info("Participant's name changed: %s", participant.identity)
-        self.participants[participant.identity] = participant.name
+        logger.info("Participant's name changed: %s", participant.sid)
+        self.participants[participant.sid] = participant.name
 
     async def _start_session(self, participant: rtc.RemoteParticipant) -> AgentSession:
         """Create and start VAD monitoring session for participant."""
-        if participant.identity in self._sessions:
-            return self._sessions[participant.identity]
+        if participant.sid in self._sessions:
+            return self._sessions[participant.sid]
 
         # Create session with VAD only - no STT, LLM, or TTS
         session = AgentSession(
@@ -325,7 +329,7 @@ class MetadataCollector:
         await room_io.start()
         await session.start(
             agent=VADAgent(
-                participant_identity=participant.identity, events=self.events
+                participant_id=participant.sid, events=self.events
             )
         )
 

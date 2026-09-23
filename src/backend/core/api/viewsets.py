@@ -4,15 +4,17 @@
 import uuid
 from datetime import timedelta
 from logging import getLogger
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlencode, urlparse
 from uuid import uuid4
 
 from django.conf import settings
+from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.storage import default_storage
 from django.db import IntegrityError, transaction
 from django.db.models import Q
-from django.http import Http404
+from django.http import FileResponse, Http404
+from django.urls import reverse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.text import slugify
@@ -1093,6 +1095,81 @@ class RecordingViewSet(
             .get_queryset()
             .filter(Q(accesses__user=user) | Q(accesses__team__in=user.get_teams()))
         )
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="email-media-links",
+        authentication_classes=[RecordingProcessWebhookAuthentication],
+        permission_classes=[drf_permissions.AllowAny],
+    )
+    def email_media_links(self, request, pk=None):
+        """Issue 24-hour links when the completed meeting email is sent."""
+        transcript = get_object_or_404(
+            models.Recording, pk=pk, mode=models.RecordingModeChoices.TRANSCRIPT
+        )
+        if not transcript.is_saved or transcript.is_expired:
+            raise drf_exceptions.NotFound("Recording is not available.")
+
+        public_url = settings.RECORDING_DOWNLOAD_BASE_URL or settings.SCREEN_RECORDING_BASE_URL
+        parsed = urlparse(public_url)
+        if not parsed.scheme or not parsed.netloc:
+            raise drf_exceptions.ValidationError("Recording download URL is not configured.")
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+
+        def link_for(recording):
+            token = signing.dumps(str(recording.id), salt="recording-email-media")
+            path = reverse("recordings-email-media", args=[recording.id])
+            return f"{origin}{path}?{urlencode({'token': token})}"
+
+        videos = models.Recording.objects.filter(
+            room_id=transcript.room_id,
+            mode=models.RecordingModeChoices.SCREEN_RECORDING,
+            created_at__lte=transcript.updated_at,
+            updated_at__gte=transcript.created_at,
+        ).order_by("created_at")
+        return drf_response.Response(
+            {
+                "audio": link_for(transcript),
+                "videos": [link_for(video) for video in videos if video.is_saved and not video.is_expired],
+                "expires_in": 24 * 60 * 60,
+            }
+        )
+
+    @decorators.action(
+        detail=True,
+        methods=["get"],
+        url_path="email-media",
+        authentication_classes=[],
+        permission_classes=[drf_permissions.AllowAny],
+    )
+    def email_media(self, request, pk=None):
+        """Download one recording using a short-lived email bearer link."""
+        try:
+            recording_id = signing.loads(
+                request.query_params.get("token", ""),
+                salt="recording-email-media",
+                max_age=24 * 60 * 60,
+            )
+        except signing.BadSignature as exc:
+            raise Http404 from exc
+        if recording_id != str(pk):
+            raise Http404
+
+        recording = get_object_or_404(models.Recording, pk=pk)
+        if not recording.is_saved or recording.is_expired:
+            raise Http404
+        try:
+            media_file = default_storage.open(recording.key, "rb")
+        except FileNotFoundError as exc:
+            raise Http404 from exc
+        response = FileResponse(
+            media_file,
+            as_attachment=True,
+            filename=f"{recording.room.slug}-{recording.id}.{recording.extension}",
+        )
+        response["Cache-Control"] = "private, no-store"
+        return response
 
     @decorators.action(
         detail=False,

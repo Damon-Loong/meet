@@ -10,6 +10,7 @@ one microphone). A participant with no matching speaker gets no assignment.
 
 import json
 import logging
+import re
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime
@@ -20,6 +21,20 @@ from summary.core.config import get_settings
 settings = get_settings()
 
 logger = logging.getLogger(__name__)
+
+MOSS_SPEAKER_PREFIX = re.compile(r"^\s*\[([A-Za-z]\d{1,3})\]\s*")
+# LiveKit VAD state callbacks lag behind the corresponding recorded audio.
+# Widen only the matching window; keep the stored timestamps unchanged.
+VAD_START_TOLERANCE_SECONDS = 1.5
+VAD_END_TOLERANCE_SECONDS = 0.25
+
+
+def _speaker_label(segment: dict[str, Any]) -> str | None:
+    """Read either a structured speaker or MOSS's text prefix."""
+    if segment.get("speaker"):
+        return segment["speaker"]
+    match = MOSS_SPEAKER_PREFIX.match(segment.get("text") or "")
+    return match.group(1) if match else None
 
 
 @dataclass
@@ -46,6 +61,8 @@ class AssignmentResult:
 
     assignments: list[SpeakerAssignment] = field(default_factory=list)
     unassigned_speakers: list[str] = field(default_factory=list)
+    segment_assignments: dict[int, SpeakerAssignment] = field(default_factory=dict)
+    moss_speaker_labels: set[str] = field(default_factory=set)
 
     def apply_to(self, diarization: dict[str, Any]) -> dict[str, Any]:
         """Return a copy of diarization with speaker labels replaced by names.
@@ -69,19 +86,34 @@ class AssignmentResult:
             name_to_speaker_count[name] += 1
 
         def _replace_speaker(item: dict[str, Any]) -> dict[str, Any]:
-            if "speaker" in item and item["speaker"] in speaker_to_name:
-                name = speaker_to_name[item["speaker"]]
+            label = _speaker_label(item)
+            if label in speaker_to_name:
+                name = speaker_to_name[label]
                 suffix = (
-                    f" ({item['speaker']})" if name_to_speaker_count[name] > 1 else ""
+                    f" ({label})" if name_to_speaker_count[name] > 1 else ""
                 )  # Add suffix only if there are multiple detected speakers per user
-                return {**item, "speaker": f"{name}{suffix}"}
+                updated = {**item, "speaker": f"{name}{suffix}"}
+                if not item.get("speaker") and "text" in item:
+                    updated["text"] = MOSS_SPEAKER_PREFIX.sub("", item["text"], count=1)
+                return updated
             return {**item}
 
         def _process_segment(
-            item: dict[str, Any], include_words: bool = False
+            item: dict[str, Any], index: int, include_words: bool = False
         ) -> dict[str, Any]:
-            new_item = _replace_speaker(item)
-            if include_words and "words" in item:
+            assignment = self.segment_assignments.get(index) if include_words else None
+            if assignment is not None:
+                new_item = {
+                    **item,
+                    "speaker": assignment.participant_name,
+                    "text": MOSS_SPEAKER_PREFIX.sub("", item.get("text") or "", count=1),
+                }
+            elif _speaker_label(item) in self.moss_speaker_labels:
+                # One MOSS label can span multiple people; do not apply a global name.
+                new_item = {**item}
+            else:
+                new_item = _replace_speaker(item)
+            if include_words and item.get("words") is not None:
                 new_item["words"] = [_replace_speaker(w) for w in item["words"]]
             return new_item
 
@@ -91,9 +123,9 @@ class AssignmentResult:
                 result[key] = value
                 continue
             result[key] = [
-                _process_segment(item, include_words=(key == "segments"))
-                for item in value
-            ]
+                _process_segment(item, index, include_words=(key == "segments"))
+                for index, item in enumerate(value)
+            ] if value is not None else None
         return result
 
 
@@ -279,13 +311,13 @@ def _build_speaker_timelines(transcription: Any) -> dict[str, list[Interval]]:
     max_word_duration = settings.resolve_speaker_identities_max_word_duration
 
     for segment in segments:
-        speaker = segment.get("speaker")
+        speaker = _speaker_label(segment)
         if speaker is None:
             continue
 
         words = [
             w
-            for w in segment.get("words", [])
+            for w in (segment.get("words") or [])
             if w.get("start") is not None and w.get("end") is not None
         ]
         if not words:
@@ -327,6 +359,8 @@ def _json_default(obj: Any) -> Any:
     """
     if isinstance(obj, datetime):
         return obj.isoformat()
+    if isinstance(obj, set):
+        return sorted(obj)
     if is_dataclass(obj) and not isinstance(obj, type):
         return asdict(obj)
     if hasattr(obj, "segments") and hasattr(obj, "word_segments"):
@@ -365,7 +399,52 @@ def resolve_speaker_identities(
 
     result = AssignmentResult()
 
+    tolerant_participant_timelines = {
+        pid: _merge_intervals([
+            Interval(max(0.0, iv.start - VAD_START_TOLERANCE_SECONDS),
+                     iv.end + VAD_END_TOLERANCE_SECONDS)
+            for iv in intervals
+        ])
+        for pid, intervals in participant_timelines.items()
+    }
+
+    # MOSS embeds [S01] in text, and may use the same label for different
+    # participants. Match these segments independently against the VAD timeline.
+    for index, segment in enumerate(transcription.get("segments") or []):
+        if segment.get("speaker") or not MOSS_SPEAKER_PREFIX.match(segment.get("text") or ""):
+            continue
+        label = _speaker_label(segment)
+        result.moss_speaker_labels.add(label)
+        start, end = segment.get("start"), segment.get("end")
+        if start is None or end is None or end <= start:
+            continue
+        segment_interval = [Interval(start, end)]
+        scores = sorted(
+            (
+                (_overlap_duration(segment_interval, intervals) / (end - start), pid)
+                for pid, intervals in tolerant_participant_timelines.items()
+            ),
+            reverse=True,
+        )
+        if not scores:
+            continue
+        best_score, best_pid = scores[0]
+        second_score = scores[1][0] if len(scores) > 1 else 0.0
+        if best_score >= overlap_threshold and best_score - second_score >= 0.15:
+            result.segment_assignments[index] = SpeakerAssignment(
+                speaker_label=label,
+                participant_id=best_pid,
+                participant_name=participant_names.get(best_pid, best_pid),
+                score=best_score,
+            )
+            logger.info(
+                "Assigned MOSS segment %s (%s) -> %s (score=%.3f)",
+                index, label, participant_names.get(best_pid, best_pid), best_score,
+            )
+
     for speaker, speaker_intervals in speaker_timelines.items():
+        if speaker in result.moss_speaker_labels:
+            continue
         speaker_duration = _total_duration(speaker_intervals)
         if speaker_duration == 0:
             result.unassigned_speakers.append(speaker)

@@ -1,7 +1,7 @@
 """Tests for the speaker-to-user assignment service."""
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from summary.core import user_assign
 from summary.core.user_assign import (
@@ -703,3 +703,47 @@ class TestApply:
         result = AssignmentResult().apply_to(diarization)
         assert result["language"] == "en"
         assert result["custom_field"] == 42
+
+
+def test_moss_same_label_maps_each_segment_with_vad_delay():
+    """MOSS may reuse S01 for two people; callback lag must not hide the second."""
+    started_at = datetime(2026, 9, 23, tzinfo=timezone.utc)
+
+    def event(pid, kind, seconds):
+        return {
+            "participant_id": pid,
+            "type": kind,
+            "timestamp": (started_at + timedelta(seconds=seconds)).isoformat(),
+        }
+
+    metadata = {
+        "participants": [
+            {"participantId": "id-a", "name": "龙"},
+            {"participantId": "id-b", "name": "LLL"},
+        ],
+        "events": [
+            event("id-a", "speech_start", 1),
+            event("id-a", "speech_end", 3),
+            event("id-b", "speech_start", 11),
+            event("id-b", "speech_end", 12.5),
+        ],
+    }
+    transcription = {
+        "segments": [
+            {"start": 0.5, "end": 2.5, "speaker": None, "words": None, "text": "[S01]你好"},
+            {"start": 5, "end": 6, "speaker": None, "words": None, "text": "[S01]不确定"},
+            {"start": 9.6, "end": 11, "speaker": None, "words": None, "text": "[S01]收到"},
+        ],
+        "word_segments": None,
+    }
+
+    assignment = resolve_speaker_identities(
+        metadata, transcription, started_at, started_at + timedelta(seconds=15)
+    )
+    mapped = assignment.apply_to(transcription)
+
+    assert [segment["speaker"] for segment in mapped["segments"]] == ["龙", None, "LLL"]
+    assert [segment["text"] for segment in mapped["segments"]] == [
+        "你好", "[S01]不确定", "收到"
+    ]
+    assert mapped["word_segments"] is None

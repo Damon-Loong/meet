@@ -726,7 +726,7 @@
   },
   "recordingStateToast": {
     "transcript": {
-      "started": "正在转录",
+      "started": "AI转录中",
       "starting": "正在开始转录",
       "stopping": "正在停止转录"
     },

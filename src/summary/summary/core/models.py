@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, EmailStr, Field, field_validator
 
@@ -23,6 +24,10 @@ class SharedV2TaskCreation(BaseModel):
     recipient_emails: list[EmailStr] = Field(
         default_factory=list,
         description="Recipients for the completed transcript and summary.",
+    )
+    media_recording_id: UUID | None = Field(
+        default=None,
+        description="Meet recording ID for issuing short-lived media links at email time.",
     )
 
 
