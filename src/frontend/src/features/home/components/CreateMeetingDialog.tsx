@@ -152,7 +152,7 @@ export const CreateMeetingDialog = ({
                 checked={isPermanent}
                 onChange={(event) => setIsPermanent(event.target.checked)}
               />
-              <Text>长期有效会议链接</Text>
+              <Text>长期有效会议链接（非必要不建议）</Text>
             </label>
             {isPermanent && (
               <label>
