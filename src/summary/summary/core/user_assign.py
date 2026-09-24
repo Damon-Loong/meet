@@ -1,12 +1,4 @@
-"""Assign WhisperX diarization speakers to participant identities.
-
-Uses per-stream VAD events to match generic SPEAKER_XX labels provided
-by diarization to real user id's by computing time overlap between
-diarization segments and VAD intervals.
-
-Multiple speakers can map to the same participant (e.g. two people sharing
-one microphone). A participant with no matching speaker gets no assignment.
-"""
+"""Match diarization speaker labels to meeting participants using VAD timelines."""
 
 import json
 import logging
@@ -27,6 +19,7 @@ MOSS_SPEAKER_PREFIX = re.compile(r"^\s*\[([A-Za-z]\d{1,3})\]\s*")
 # Widen only the matching window; keep the stored timestamps unchanged.
 VAD_START_TOLERANCE_SECONDS = 1.5
 VAD_END_TOLERANCE_SECONDS = 0.25
+ASSIGNMENT_MARGIN = 0.15
 
 
 def _speaker_label(segment: dict[str, Any]) -> str | None:
@@ -61,8 +54,6 @@ class AssignmentResult:
 
     assignments: list[SpeakerAssignment] = field(default_factory=list)
     unassigned_speakers: list[str] = field(default_factory=list)
-    segment_assignments: dict[int, SpeakerAssignment] = field(default_factory=dict)
-    moss_speaker_labels: set[str] = field(default_factory=set)
 
     def apply_to(self, diarization: dict[str, Any]) -> dict[str, Any]:
         """Return a copy of diarization with speaker labels replaced by names.
@@ -98,21 +89,8 @@ class AssignmentResult:
                 return updated
             return {**item}
 
-        def _process_segment(
-            item: dict[str, Any], index: int, include_words: bool = False
-        ) -> dict[str, Any]:
-            assignment = self.segment_assignments.get(index) if include_words else None
-            if assignment is not None:
-                new_item = {
-                    **item,
-                    "speaker": assignment.participant_name,
-                    "text": MOSS_SPEAKER_PREFIX.sub("", item.get("text") or "", count=1),
-                }
-            elif _speaker_label(item) in self.moss_speaker_labels:
-                # One MOSS label can span multiple people; do not apply a global name.
-                new_item = {**item}
-            else:
-                new_item = _replace_speaker(item)
+        def _process_segment(item: dict[str, Any], include_words: bool = False) -> dict[str, Any]:
+            new_item = _replace_speaker(item)
             if include_words and item.get("words") is not None:
                 new_item["words"] = [_replace_speaker(w) for w in item["words"]]
             return new_item
@@ -123,8 +101,8 @@ class AssignmentResult:
                 result[key] = value
                 continue
             result[key] = [
-                _process_segment(item, index, include_words=(key == "segments"))
-                for index, item in enumerate(value)
+                _process_segment(item, include_words=(key == "segments"))
+                for item in value
             ] if value is not None else None
         return result
 
@@ -371,6 +349,73 @@ def _json_default(obj: Any) -> Any:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
+def _best_unique_assignment(
+    scores: list[list[float]],
+    threshold: float,
+    excluded: tuple[int, int] | None = None,
+) -> tuple[float, list[int | None]]:
+    """Maximum-weight one-to-one assignment with an unmatched slot per speaker."""
+    rows = len(scores)
+    if not rows:
+        return 0.0, []
+    participants = len(scores[0])
+    columns = participants + rows
+    costs = [
+        [
+            -score if j < participants and score >= threshold and (i, j) != excluded
+            else 0.0 if j >= participants else 1_000_000.0
+            for j, score in enumerate(row + [0.0] * rows)
+        ]
+        for i, row in enumerate(scores)
+    ]
+    # Rectangular Hungarian algorithm (rows <= columns).
+    u = [0.0] * (rows + 1)
+    v = [0.0] * (columns + 1)
+    p = [0] * (columns + 1)
+    way = [0] * (columns + 1)
+    for i in range(1, rows + 1):
+        p[0] = i
+        j0 = 0
+        minv = [float("inf")] * (columns + 1)
+        used = [False] * (columns + 1)
+        while True:
+            used[j0] = True
+            i0 = p[j0]
+            delta = float("inf")
+            j1 = 0
+            for j in range(1, columns + 1):
+                if used[j]:
+                    continue
+                cur = costs[i0 - 1][j - 1] - u[i0] - v[j]
+                if cur < minv[j]:
+                    minv[j] = cur
+                    way[j] = j0
+                if minv[j] < delta:
+                    delta = minv[j]
+                    j1 = j
+            for j in range(columns + 1):
+                if used[j]:
+                    u[p[j]] += delta
+                    v[j] -= delta
+                else:
+                    minv[j] -= delta
+            j0 = j1
+            if p[j0] == 0:
+                break
+        while True:
+            j1 = way[j0]
+            p[j0] = p[j1]
+            j0 = j1
+            if j0 == 0:
+                break
+    assignment: list[int | None] = [None] * rows
+    for j in range(1, columns + 1):
+        if p[j] and j <= participants:
+            assignment[p[j] - 1] = j - 1
+    total = sum(scores[i][j] for i, j in enumerate(assignment) if j is not None)
+    return total, assignment
+
+
 def resolve_speaker_identities(
     metadata: dict[str, Any],
     transcription: Any,
@@ -378,7 +423,7 @@ def resolve_speaker_identities(
     recording_end_datetime: datetime,
     overlap_threshold: float = settings.resolve_speaker_identities_default_overlap_threshold,  # noqa: E501
 ) -> AssignmentResult:
-    """Match WhisperX speaker labels to participants.
+    """Assign each speaker label globally using all its recorded speech.
 
     Args:
         metadata: User metadata with `events` and `participants`.
@@ -397,8 +442,6 @@ def resolve_speaker_identities(
     )
     speaker_timelines = _build_speaker_timelines(transcription)
 
-    result = AssignmentResult()
-
     tolerant_participant_timelines = {
         pid: _merge_intervals([
             Interval(max(0.0, iv.start - VAD_START_TOLERANCE_SECONDS),
@@ -408,81 +451,41 @@ def resolve_speaker_identities(
         for pid, intervals in participant_timelines.items()
     }
 
-    # MOSS embeds [S01] in text, and may use the same label for different
-    # participants. Match these segments independently against the VAD timeline.
-    for index, segment in enumerate(transcription.get("segments") or []):
-        if segment.get("speaker") or not MOSS_SPEAKER_PREFIX.match(segment.get("text") or ""):
+    result = AssignmentResult()
+    speakers = list(speaker_timelines)
+    participants = list(tolerant_participant_timelines)
+    scores = []
+    for intervals in speaker_timelines.values():
+        duration = _total_duration(intervals)
+        scores.append([
+            _overlap_duration(intervals, tolerant_participant_timelines[pid]) / duration
+            if duration else 0.0
+            for pid in participants
+        ])
+
+    total, chosen = _best_unique_assignment(scores, overlap_threshold)
+    for i, speaker in enumerate(speakers):
+        j = chosen[i]
+        if j is None:
+            result.unassigned_speakers.append(speaker)
             continue
-        label = _speaker_label(segment)
-        result.moss_speaker_labels.add(label)
-        start, end = segment.get("start"), segment.get("end")
-        if start is None or end is None or end <= start:
-            continue
-        segment_interval = [Interval(start, end)]
-        scores = sorted(
-            (
-                (_overlap_duration(segment_interval, intervals) / (end - start), pid)
-                for pid, intervals in tolerant_participant_timelines.items()
-            ),
-            reverse=True,
+        alternative_total, _ = _best_unique_assignment(
+            scores, overlap_threshold, excluded=(i, j)
         )
-        if not scores:
-            continue
-        best_score, best_pid = scores[0]
-        second_score = scores[1][0] if len(scores) > 1 else 0.0
-        if best_score >= overlap_threshold and best_score - second_score >= 0.15:
-            result.segment_assignments[index] = SpeakerAssignment(
-                speaker_label=label,
-                participant_id=best_pid,
-                participant_name=participant_names.get(best_pid, best_pid),
-                score=best_score,
-            )
-            logger.info(
-                "Assigned MOSS segment %s (%s) -> %s (score=%.3f)",
-                index, label, participant_names.get(best_pid, best_pid), best_score,
-            )
-
-    for speaker, speaker_intervals in speaker_timelines.items():
-        if speaker in result.moss_speaker_labels:
-            continue
-        speaker_duration = _total_duration(speaker_intervals)
-        if speaker_duration == 0:
+        margin = total - alternative_total
+        if margin < ASSIGNMENT_MARGIN:
             result.unassigned_speakers.append(speaker)
+            logger.info("Speaker %s remains ambiguous (margin=%.3f)", speaker, margin)
             continue
-
-        best_pid: str | None = None
-        best_score: float = 0.0
-
-        for pid, part_intervals in participant_timelines.items():
-            overlap = _overlap_duration(speaker_intervals, part_intervals)
-            score = overlap / speaker_duration
-            if score > best_score:
-                best_score = score
-                best_pid = pid
-
-        if best_pid is not None and best_score >= overlap_threshold:
-            result.assignments.append(
-                SpeakerAssignment(
-                    speaker_label=speaker,
-                    participant_id=best_pid,
-                    participant_name=participant_names.get(best_pid, best_pid),
-                    score=best_score,
-                )
-            )
-            logger.info(
-                "Assigned %s -> %s (score=%.3f)",
-                speaker,
-                participant_names.get(best_pid, best_pid),
-                best_score,
-            )
-        else:
-            result.unassigned_speakers.append(speaker)
-            logger.info(
-                "Speaker %s unassigned (best=%.3f, threshold=%.3f)",
-                speaker,
-                best_score,
-                overlap_threshold,
-            )
+        pid = participants[j]
+        result.assignments.append(SpeakerAssignment(
+            speaker_label=speaker,
+            participant_id=pid,
+            participant_name=participant_names.get(pid, pid),
+            score=scores[i][j],
+        ))
+        logger.info("Assigned %s -> %s (score=%.3f, margin=%.3f)", speaker,
+                    participant_names.get(pid, pid), scores[i][j], margin)
 
     logger.debug(
         json.dumps(

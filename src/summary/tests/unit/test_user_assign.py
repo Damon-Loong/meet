@@ -383,7 +383,7 @@ class TestResolveSpeakerIdentities:
         assert "SPEAKER_00" in result.unassigned_speakers
 
     def test_multiple_speakers_same_user(self):
-        """Two speakers from same mic both assigned to same user."""
+        """A participant cannot be assigned to two different speaker labels."""
         metadata = {
             "events": [
                 {
@@ -408,7 +408,8 @@ class TestResolveSpeakerIdentities:
         result = resolve_speaker_identities(
             metadata, transcription, RECORDING_START, RECORDING_END
         )
-        assert len(result.assignments) == 2
+        assert len(result.assignments) == 1
+        assert len(result.unassigned_speakers) == 1
         pids = {a.participant_id for a in result.assignments}
         assert pids == {"user-a"}
 
@@ -705,8 +706,8 @@ class TestApply:
         assert result["custom_field"] == 42
 
 
-def test_moss_same_label_maps_each_segment_with_vad_delay():
-    """MOSS may reuse S01 for two people; callback lag must not hide the second."""
+def test_moss_label_maps_globally_with_vad_delay():
+    """One MOSS label is assigned once using all of its speech intervals."""
     started_at = datetime(2026, 9, 23, tzinfo=timezone.utc)
 
     def event(pid, kind, seconds):
@@ -732,7 +733,7 @@ def test_moss_same_label_maps_each_segment_with_vad_delay():
         "segments": [
             {"start": 0.5, "end": 2.5, "speaker": None, "words": None, "text": "[S01]你好"},
             {"start": 5, "end": 6, "speaker": None, "words": None, "text": "[S01]不确定"},
-            {"start": 9.6, "end": 11, "speaker": None, "words": None, "text": "[S01]收到"},
+            {"start": 9.6, "end": 11, "speaker": None, "words": None, "text": "[S02]收到"},
         ],
         "word_segments": None,
     }
@@ -742,8 +743,28 @@ def test_moss_same_label_maps_each_segment_with_vad_delay():
     )
     mapped = assignment.apply_to(transcription)
 
-    assert [segment["speaker"] for segment in mapped["segments"]] == ["龙", None, "LLL"]
+    assert [segment["speaker"] for segment in mapped["segments"]] == ["龙", "龙", "LLL"]
     assert [segment["text"] for segment in mapped["segments"]] == [
-        "你好", "[S01]不确定", "收到"
+        "你好", "不确定", "收到"
     ]
     assert mapped["word_segments"] is None
+
+
+def test_global_assignment_uses_other_speakers_to_break_close_scores():
+    scores = [[0.42, 0.39], [0.10, 0.70]]
+    total, chosen = user_assign._best_unique_assignment(scores, 0.30)
+    assert chosen == [0, 1]
+    alternative, _ = user_assign._best_unique_assignment(
+        scores, 0.30, excluded=(0, 0)
+    )
+    assert total - alternative >= user_assign.ASSIGNMENT_MARGIN
+
+
+def test_close_scores_without_other_evidence_remain_ambiguous():
+    scores = [[0.42, 0.39]]
+    total, chosen = user_assign._best_unique_assignment(scores, 0.30)
+    assert chosen == [0]
+    alternative, _ = user_assign._best_unique_assignment(
+        scores, 0.30, excluded=(0, 0)
+    )
+    assert total - alternative < user_assign.ASSIGNMENT_MARGIN

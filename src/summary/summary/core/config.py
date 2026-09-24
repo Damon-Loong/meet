@@ -108,7 +108,7 @@ class Settings(BaseSettings):
 
     # Speaker to user assignment
     is_resolve_speaker_identities_enabled: bool = True
-    resolve_speaker_identities_default_overlap_threshold: float = 0.5
+    resolve_speaker_identities_default_overlap_threshold: float = 0.3
     resolve_speaker_identities_enable_split_on_words: bool = True
     resolve_speaker_identities_max_word_duration: float = 1  # seconds
 
