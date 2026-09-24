@@ -32,14 +32,16 @@ export const CreateMeetingMenu = () => {
     end,
     inviteEmails,
     isPermanent,
+    customSlug,
   }: {
     topic: string
     start?: string
     end?: string
     inviteEmails: string[]
     isPermanent: boolean
+    customSlug?: string
   }) => {
-    const slug = generateRoomId()
+    const slug = customSlug || generateRoomId()
     const data = await createRoom({
       slug,
       topic,

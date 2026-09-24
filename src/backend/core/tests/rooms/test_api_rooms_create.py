@@ -66,6 +66,50 @@ def test_api_rooms_create_authenticated(reset_cache):
     assert not rooms_data
 
 
+def test_create_permanent_room_with_custom_slug():
+    user = UserFactory()
+    client = APIClient()
+    client.force_login(user)
+
+    response = client.post(
+        "/api/v1.0/rooms/",
+        {
+            "name": "team-weekly",
+            "topic": "Team weekly",
+            "room_type": "instant",
+            "is_permanent": True,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    room = Room.objects.get()
+    assert room.slug == "team-weekly"
+    assert room.is_permanent is True
+    assert response.json()["is_permanent"] is True
+
+
+@pytest.mark.parametrize("name", ["admin", "bad--slug", "abcdefghij"])
+def test_create_permanent_room_rejects_invalid_slug(name):
+    user = UserFactory()
+    client = APIClient()
+    client.force_login(user)
+
+    response = client.post(
+        "/api/v1.0/rooms/",
+        {
+            "name": name,
+            "topic": "Team weekly",
+            "room_type": "instant",
+            "is_permanent": True,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "name" in response.json()
+
+
 def test_api_rooms_create_generation_cache(reset_cache):
     """
     Authenticated users creating a room with a callback ID should have room data stored in cache.

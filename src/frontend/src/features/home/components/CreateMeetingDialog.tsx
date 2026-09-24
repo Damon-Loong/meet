@@ -47,6 +47,7 @@ type CreateMeetingDialogProps = {
     end?: string
     inviteEmails: string[]
     isPermanent: boolean
+    customSlug?: string
   }) => Promise<void>
 }
 
@@ -62,6 +63,7 @@ export const CreateMeetingDialog = ({
   const [end, setEnd] = useState('')
   const [emails, setEmails] = useState('')
   const [isPermanent, setIsPermanent] = useState(false)
+  const [customSlug, setCustomSlug] = useState('')
   const [contacts, setContacts] = useState<AccountContact[]>([])
   const [contactSearch, setContactSearch] = useState('')
   const [isContactPickerOpen, setIsContactPickerOpen] = useState(false)
@@ -76,6 +78,7 @@ export const CreateMeetingDialog = ({
       setEnd(mode === 'later' ? schedule.end : '')
       setEmails('')
       setIsPermanent(false)
+      setCustomSlug('')
       setContacts([])
       setContactSearch('')
       setIsContactPickerOpen(false)
@@ -142,14 +145,36 @@ export const CreateMeetingDialog = ({
           autoFocus
         />
         {mode === 'instant' && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <input
-              type="checkbox"
-              checked={isPermanent}
-              onChange={(event) => setIsPermanent(event.target.checked)}
-            />
-            <Text>长期有效会议链接</Text>
-          </label>
+          <>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input
+                type="checkbox"
+                checked={isPermanent}
+                onChange={(event) => setIsPermanent(event.target.checked)}
+              />
+              <Text>长期有效会议链接</Text>
+            </label>
+            {isPermanent && (
+              <label>
+                <Text>自定义链接后缀（选填）</Text>
+                <input
+                  type="text"
+                  value={customSlug}
+                  placeholder="例如 team-weekly；留空则自动生成"
+                  onChange={(event) => setCustomSlug(event.target.value.toLowerCase())}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    border: '1px solid #777',
+                    borderRadius: '4px',
+                  }}
+                />
+                <Text color="gray.600">
+                  3–50 位英文小写字母、数字或连字符；纯 10 位字符留给普通会议码。
+                </Text>
+              </label>
+            )}
+          </>
         )}
         {mode === 'later' && (
           <>
@@ -254,6 +279,19 @@ export const CreateMeetingDialog = ({
             }
             onPress={async () => {
               setError('')
+              const suffix = customSlug.trim()
+              if (
+                mode === 'instant' &&
+                isPermanent &&
+                suffix &&
+                (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(suffix) ||
+                  suffix.length < 3 ||
+                  suffix.length > 50 ||
+                  /^[a-z0-9]{10}$/.test(suffix))
+              ) {
+                setError('链接后缀须为 3–50 位英文小写字母、数字或连字符。')
+                return
+              }
               if (mode === 'later' && new Date(start).getTime() <= Date.now()) {
                 setError(
                   '开始时间必须晚于当前时间，请重新选择。时间按本机时区填写。'
@@ -267,6 +305,10 @@ export const CreateMeetingDialog = ({
                   end: end ? new Date(end).toISOString() : undefined,
                   inviteEmails: parseEmails(emails),
                   isPermanent: mode === 'instant' && isPermanent,
+                  customSlug:
+                    mode === 'instant' && isPermanent
+                      ? customSlug.trim() || undefined
+                      : undefined,
                 })
               } catch (cause) {
                 const body = cause instanceof ApiError ? cause.body : undefined
@@ -288,6 +330,12 @@ export const CreateMeetingDialog = ({
                   'invite_emails' in body
                 ) {
                   setError('邀请人邮箱格式有误，请检查后重试。')
+                } else if (
+                  body &&
+                  typeof body === 'object' &&
+                  ('name' in body || 'slug' in body)
+                ) {
+                  setError('链接后缀格式不正确或已被占用，请更换后重试。')
                 } else {
                   setError('创建会议失败，请检查输入或稍后重试。')
                 }

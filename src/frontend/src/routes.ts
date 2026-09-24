@@ -56,12 +56,6 @@ export const routes: Record<
     path: '/',
     Component: HomeRoute,
   },
-  room: {
-    name: 'room',
-    to: (roomId: string) => `/${roomId.trim()}`,
-    path: roomIdRegex,
-    Component: RoomRoute,
-  },
   feedback: {
     name: 'feedback',
     path: '/feedback',
@@ -112,6 +106,12 @@ export const routes: Record<
     name: 'meetingConfirmation',
     path: '/meeting-confirmation',
     Component: MeetingConfirmationRoute,
+  },
+  room: {
+    name: 'room',
+    to: (roomId: string) => `/${roomId.trim()}`,
+    path: roomIdRegex,
+    Component: RoomRoute,
   },
 }
 

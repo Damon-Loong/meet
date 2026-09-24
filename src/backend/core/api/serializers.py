@@ -2,6 +2,7 @@
 
 # pylint: disable=abstract-method,no-name-in-module
 import logging
+import re
 from os.path import splitext
 from typing import Literal
 from urllib.parse import quote
@@ -199,6 +200,23 @@ class RoomSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        if self.instance is None and attrs.get("is_permanent"):
+            slug = attrs.get("name", "")
+            reserved = {
+                "admin", "api", "static", "media", "meet-media-storage",
+                "feedback", "test-connection", "mentions-legales",
+                "accessibilite", "conditions-utilisation", "sdk",
+                "recording", "meeting-confirmation",
+            }
+            if (
+                not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug)
+                or not 3 <= len(slug) <= 50
+                or re.fullmatch(r"[a-z0-9]{10}", slug)
+                or slug in reserved
+            ):
+                raise serializers.ValidationError({
+                    "name": "Use 3–50 lowercase letters, numbers or hyphens; this suffix may be reserved."
+                })
         is_scheduled = attrs.get(
             "room_type", getattr(self.instance, "room_type", None)
         ) == models.RoomTypeChoices.SCHEDULED
