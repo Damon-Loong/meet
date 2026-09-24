@@ -4,8 +4,10 @@
 
 import json
 import re
+import tempfile
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
@@ -27,6 +29,14 @@ from summary.core.file_service import (
     TranscribeError,
 )
 from summary.core.llm_service import LLMException, LLMObservability, LLMService
+from summary.core.long_audio import (
+    CHUNK_SECONDS,
+    chunk_windows,
+    extract_chunk,
+    merge_transcripts,
+    namespace_unmatched,
+    shift_timestamps,
+)
 from summary.core.locales import get_locale
 from summary.core.models import (
     PushToDocsBaseConfig,
@@ -92,120 +102,107 @@ if settings.sentry_dsn and settings.sentry_is_enabled:
 file_service = FileService()
 
 
+def _request_transcription(audio_file, language: str, read_timeout: int) -> Transcription:
+    """Send one audio file to the configured OpenAI-compatible ASR endpoint."""
+    url = urljoin(settings.whisperx_base_url.rstrip("/") + "/", "audio/transcriptions")
+    transcription_data = {
+        "model": settings.whisperx_asr_model,
+        "language": language,
+        "timestamp_granularities": ["word", "segment"],
+        "response_format": settings.whisperx_response_format,
+    }
+    if settings.whisperx_max_completion_tokens:
+        transcription_data["max_completion_tokens"] = (
+            settings.whisperx_max_completion_tokens
+        )
+
+    res = requests.post(
+        url,
+        data=transcription_data,
+        files={"file": audio_file},
+        headers={
+            "Authorization": f"Bearer {settings.whisperx_api_key.get_secret_value()}"
+        },
+        timeout=(60, read_timeout),
+    )
+    if res.status_code == 400:
+        logger.info("ASR rejected the audio file: %s", res.text)
+        raise CorruptedAudioFile("ASR could not decode the audio file.")
+    res.raise_for_status()
+    data: dict[str, Any] = res.json()
+    data.pop("usage", None)
+    return Transcription.model_validate({"text": "", **data}, extra="allow", strict=False)
+
+
 def transcribe_audio(
     *,
     task_id: str,
     language: str,
     cloud_storage_url: str,
     raises: bool = False,
+    recording_metadata: RecordingMetadata | None = None,
+    participant_metadata: dict | None = None,
 ):
-    """Transcribe an audio file using WhisperX.
+    """Transcribe one original file, splitting only when it exceeds 80 minutes.
 
-    Downloads the audio from a cloud storage URL, sends it to
-    WhisperX for transcription, and tracks metadata throughout the process.
-
-    Returns the transcription object, or None if the file could not be retrieved.
+    Returns (transcription, already_mapped). Temporary chunks are always removed;
+    the source recording remains untouched.
     """
-    logger.info("Initiating WhisperX client")
-
-    # Transcription
     try:
         with file_service.prepare_audio_file(
             cloud_storage_url=cloud_storage_url,
         ) as (audio_file, metadata):
-            metadata_manager.track(task_id, {"audio_length": metadata["duration"]})
+            duration = metadata["duration"]
+            metadata_manager.track(task_id, {"audio_length": duration})
+            language = language or settings.whisperx_default_language
+            started = time.time()
 
-            # Compute language parameter
-            if language is None:
-                language = settings.whisperx_default_language
-                logger.info(
-                    "No language specified, using default from settings: %s",
-                    (language or "auto-detect"),
-                )
+            if duration <= CHUNK_SECONDS:
+                transcription = _request_transcription(audio_file, language, 10 * 60)
+                already_mapped = False
             else:
+                windows = chunk_windows(duration)
                 logger.info(
-                    "Querying transcription in '%s' language",
-                    language,
+                    "Long audio: %.1f seconds in %d sequential chunks",
+                    duration,
+                    len(windows),
                 )
+                chunks = []
+                with tempfile.TemporaryDirectory(prefix="meet_asr_chunks_") as temp_dir:
+                    for index, (start, end) in enumerate(windows):
+                        path = Path(temp_dir) / f"chunk_{index:03d}.ogg"
+                        extract_chunk(Path(audio_file.name), path, start, end)
+                        try:
+                            with path.open("rb") as chunk_file:
+                                chunk = _request_transcription(chunk_file, language, 60 * 60)
+                        finally:
+                            path.unlink(missing_ok=True)
 
-            # Call remote service for transcription
-            transcription_start_time = time.time()
+                        global_times = shift_timestamps(chunk.model_dump(), start)
+                        parsed = WhisperXResponse.model_validate(global_times)
+                        if (
+                            settings.is_resolve_speaker_identities_enabled
+                            and recording_metadata is not None
+                            and participant_metadata is not None
+                        ):
+                            parsed = resolve_speaker_identities_and_apply_to(
+                                transcription=parsed,
+                                recording_metadata=recording_metadata,
+                                task_id=task_id,
+                                participant_metadata=participant_metadata,
+                            )
+                        chunks.append(namespace_unmatched(parsed.model_dump(), index))
+                        logger.info("Transcribed chunk %d/%d", index + 1, len(windows))
 
-            api_key = settings.whisperx_api_key.get_secret_value()
-            base_url = settings.whisperx_base_url
-
-            # We use a manual call to the transcripion endpoint, and we do not
-            # directly use the OpenAI lib for this.
-            # This is because, depending on the requested response format,
-            # the OpenAI lib will cast the response to a different dataclass,
-            # which can result in stripping out keys & data that we are interested in.
-            # This is in particular true for word_segments and words.
-            # WhisperX response is slightly different from OpenAI STT endpoints
-            # response.
-            # At the same time "diarized_json" should be the value
-            # provided to STT endpoints in our context.
-            url = urljoin(base_url.rstrip("/") + "/", "audio/transcriptions")
-            transcription_data = {
-                "model": settings.whisperx_asr_model,
-                "language": language,
-                "timestamp_granularities": ["word", "segment"],
-                "response_format": settings.whisperx_response_format,
-            }
-            if settings.whisperx_max_completion_tokens:
-                transcription_data["max_completion_tokens"] = (
-                    settings.whisperx_max_completion_tokens
+                merged = merge_transcripts(chunks, windows)
+                transcription = Transcription.model_validate(
+                    {"text": "", **merged}, extra="allow", strict=False
                 )
+                already_mapped = True
 
-            res = requests.post(
-                url,
-                data=transcription_data,
-                files={"file": audio_file},
-                headers={"Authorization": f"Bearer {api_key}"},
-                # Mimic OpenAI's timeout settings
-                timeout=(60, 10 * 60),
-            )
-            if res.status_code == 400:
-                logger.info(
-                    "WhisperX transcription failed, "
-                    "likely due to a corrupted audio file: %s",
-                    res.text,
-                )
-                raise CorruptedAudioFile("WhisperX coudln't decode the audio file.")
-
-            try:
-                res.raise_for_status()
-            except requests.exceptions.HTTPError:
-                logger.exception("WhisperX transcription failed")
-                # We reraise the error so that it can be retried by celery
-                raise
-
-            transcription_json: dict[str, Any] = res.json()
-            # We remove the "usage" key from the transcription_json dictionary
-            # as it may cause issues with parsing inside the Transcription model
-            # Some API don't share the exact same structure for the "usage" key
-            transcription_json.pop("usage", None)
-
-            # We force the use of the Transcription model here
-            # to avoid changing too much code for now.
-            # Note that it should be WhisperXResponse instead.
-            transcription = Transcription.model_validate(
-                # We add a dummy "text" to make the model validate,
-                # Some API responses lack the "text" key.
-                {"text": "", **transcription_json},
-                extra="allow",
-                strict=False,
-            )
-
-            # Logging
-            transcription_duration = round(time.time() - transcription_start_time, 2)
-            metadata_manager.track(
-                task_id,
-                {"transcription_time": transcription_duration},
-            )
-            logger.info(
-                "Transcription received in %.2f seconds.", transcription_duration
-            )
-            logger.debug("Transcription: \n %s", transcription)
+            transcription_duration = round(time.time() - started, 2)
+            metadata_manager.track(task_id, {"transcription_time": transcription_duration})
+            logger.info("Transcription received in %.2f seconds", transcription_duration)
 
     except FileServiceException as e:
         # For v2 pipeline we want failures not silent errors like this
@@ -221,7 +218,7 @@ def transcribe_audio(
         return None
 
     metadata_manager.track_transcription_metadata(task_id, transcription)
-    return transcription
+    return transcription, already_mapped
 
 
 def resolve_speaker_identities_and_apply_to(
@@ -603,25 +600,6 @@ def process_audio_transcribe_v2_task(
 
     job_id = self.request.id
 
-    try:
-        transcription_res = WhisperXResponse(
-            **transcribe_audio(  # type: ignore
-                task_id=job_id,
-                cloud_storage_url=payload.cloud_storage_url,
-                language=payload.language,
-                raises=True,
-            ).model_dump()
-        )
-    except TranscribeError as e:
-        failure_payload = TranscribeWebhookFailurePayload(
-            job_id=job_id,
-            error_code=e.error_code,
-        )
-        call_webhook_v2_task.apply_async(
-            args=[failure_payload.model_dump(), payload.tenant_id]
-        )
-        return failure_payload.model_dump()
-
     participant_metadata = None
     if payload.metadata is not None:
         participant_metadata = {"participants": payload.metadata.participants}
@@ -637,9 +615,32 @@ def process_audio_transcribe_v2_task(
             except Exception as exc:
                 logger.warning("Unable to read meeting metadata: %s", exc)
 
+    try:
+        raw_transcription, already_mapped = transcribe_audio(
+            task_id=job_id,
+            cloud_storage_url=payload.cloud_storage_url,
+            language=payload.language,
+            raises=True,
+            recording_metadata=payload.metadata,
+            participant_metadata=participant_metadata,
+        )
+        transcription_res = WhisperXResponse(
+            **raw_transcription.model_dump()
+        )
+    except TranscribeError as e:
+        failure_payload = TranscribeWebhookFailurePayload(
+            job_id=job_id,
+            error_code=e.error_code,
+        )
+        call_webhook_v2_task.apply_async(
+            args=[failure_payload.model_dump(), payload.tenant_id]
+        )
+        return failure_payload.model_dump()
+
     # Assign speakers and rewrite transcription/diarization output
     if (
-        settings.is_resolve_speaker_identities_enabled
+        not already_mapped
+        and settings.is_resolve_speaker_identities_enabled
         and payload.metadata is not None
         and payload.metadata.cloud_storage_url
     ):
