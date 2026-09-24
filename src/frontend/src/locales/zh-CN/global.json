@@ -53,7 +53,7 @@
     "defaultInviter": "会议主持人",
     "subject": "会议主题：{{subject}}",
     "startTime": "开始时间：{{startTime}} (GMT+08:00) 中国标准时间 - 北京",
-    "url": "点击链接入会：{{roomUrl}}",
+    "url": "点击链接入会：{{roomUrl}}\n（链接请用浏览器打开）",
     "numberAndPin": "电话入会：拨打 {{phoneNumber}}，然后输入会议码 {{pinCode}}"
   }
 }
