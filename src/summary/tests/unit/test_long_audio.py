@@ -1,13 +1,33 @@
 """Long-audio chunk planning and transcript reconstruction."""
 
+from pathlib import Path
+
 from summary.core.long_audio import (
     CHUNK_SECONDS,
     OVERLAP_SECONDS,
     chunk_windows,
+    extract_chunk,
     merge_transcripts,
     namespace_unmatched,
     shift_timestamps,
 )
+
+
+def test_extract_chunk_copies_audio_stream_without_reencoding(monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+
+    monkeypatch.setattr("summary.core.long_audio.subprocess.run", fake_run)
+    extract_chunk(Path("source.ogg"), Path("chunk.ogg"), 4790, 5228.5)
+
+    command, kwargs = calls[0]
+    assert command[command.index("-c:a") + 1] == "copy"
+    assert command[command.index("-ss") + 1] == "4790.000"
+    assert command[command.index("-t") + 1] == "438.500"
+    assert not any(option in command for option in ("-ac", "-ar", "-b:a"))
+    assert kwargs["check"] is True
 
 
 def test_short_audio_stays_whole():

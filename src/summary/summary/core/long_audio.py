@@ -27,13 +27,13 @@ def chunk_windows(duration: float) -> list[tuple[float, float]]:
 
 
 def extract_chunk(source: Path, target: Path, start: float, end: float) -> None:
-    """Create a small mono Opus file without altering the original recording."""
+    """Cut an audio window without changing its codec, channels, or quality."""
     subprocess.run(
         [
             "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
             "-ss", f"{start:.3f}", "-i", str(source),
             "-t", f"{end - start:.3f}", "-map", "0:a:0", "-vn",
-            "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "32k",
+            "-c:a", "copy",
             "-y", str(target),
         ],
         check=True,

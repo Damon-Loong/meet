@@ -170,7 +170,9 @@ def transcribe_audio(
                 chunks = []
                 with tempfile.TemporaryDirectory(prefix="meet_asr_chunks_") as temp_dir:
                     for index, (start, end) in enumerate(windows):
-                        path = Path(temp_dir) / f"chunk_{index:03d}.ogg"
+                        path = Path(temp_dir) / (
+                            f"chunk_{index:03d}{Path(audio_file.name).suffix or '.mka'}"
+                        )
                         extract_chunk(Path(audio_file.name), path, start, end)
                         try:
                             with path.open("rb") as chunk_file:
