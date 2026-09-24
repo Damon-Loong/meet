@@ -32,6 +32,7 @@ export type ApiRoom = {
   topic: string
   created_at: string
   room_type: 'instant' | 'scheduled'
+  is_permanent: boolean
   lifecycle_status: 'active' | 'expired' | 'cancelled'
   is_expired?: boolean
   scheduled_start?: string

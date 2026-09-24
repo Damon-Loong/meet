@@ -46,6 +46,7 @@ type CreateMeetingDialogProps = {
     start?: string
     end?: string
     inviteEmails: string[]
+    isPermanent: boolean
   }) => Promise<void>
 }
 
@@ -60,6 +61,7 @@ export const CreateMeetingDialog = ({
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
   const [emails, setEmails] = useState('')
+  const [isPermanent, setIsPermanent] = useState(false)
   const [contacts, setContacts] = useState<AccountContact[]>([])
   const [contactSearch, setContactSearch] = useState('')
   const [isContactPickerOpen, setIsContactPickerOpen] = useState(false)
@@ -73,6 +75,7 @@ export const CreateMeetingDialog = ({
       setStart(mode === 'later' ? schedule.start : '')
       setEnd(mode === 'later' ? schedule.end : '')
       setEmails('')
+      setIsPermanent(false)
       setContacts([])
       setContactSearch('')
       setIsContactPickerOpen(false)
@@ -138,6 +141,16 @@ export const CreateMeetingDialog = ({
           isRequired
           autoFocus
         />
+        {mode === 'instant' && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input
+              type="checkbox"
+              checked={isPermanent}
+              onChange={(event) => setIsPermanent(event.target.checked)}
+            />
+            <Text>长期有效会议链接</Text>
+          </label>
+        )}
         {mode === 'later' && (
           <>
             <label>
@@ -253,6 +266,7 @@ export const CreateMeetingDialog = ({
                   start: start ? new Date(start).toISOString() : undefined,
                   end: end ? new Date(end).toISOString() : undefined,
                   inviteEmails: parseEmails(emails),
+                  isPermanent: mode === 'instant' && isPermanent,
                 })
               } catch (cause) {
                 const body = cause instanceof ApiError ? cause.body : undefined

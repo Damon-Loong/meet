@@ -9,6 +9,7 @@ export interface CreateRoomParams {
   callbackId?: string
   username?: string
   roomType?: 'instant' | 'scheduled'
+  isPermanent?: boolean
   scheduledStart?: string
   scheduledEnd?: string
   inviteEmails?: string[]
@@ -20,6 +21,7 @@ const createRoom = ({
   callbackId,
   username = '',
   roomType = 'instant',
+  isPermanent = false,
   scheduledStart,
   scheduledEnd,
   inviteEmails = [],
@@ -31,6 +33,7 @@ const createRoom = ({
       topic,
       callback_id: callbackId,
       room_type: roomType,
+      is_permanent: isPermanent,
       scheduled_start: scheduledStart,
       scheduled_end: scheduledEnd,
       scheduled_timezone: 'Asia/Shanghai',

@@ -175,6 +175,7 @@ class RoomSerializer(serializers.ModelSerializer):
             "pin_code",
             "created_at",
             "room_type",
+            "is_permanent",
             "lifecycle_status",
             "scheduled_start",
             "scheduled_end",
@@ -198,7 +199,13 @@ class RoomSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
-        is_scheduled = attrs.get("room_type") == models.RoomTypeChoices.SCHEDULED
+        is_scheduled = attrs.get(
+            "room_type", getattr(self.instance, "room_type", None)
+        ) == models.RoomTypeChoices.SCHEDULED
+        if is_scheduled and attrs.get("is_permanent"):
+            raise serializers.ValidationError(
+                {"is_permanent": "Only instant meetings can have a long-lived link."}
+            )
         starts_at = attrs.get("scheduled_start")
         ends_at = attrs.get("scheduled_end")
         if is_scheduled:

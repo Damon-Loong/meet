@@ -287,13 +287,14 @@ class RoomAdmin(admin.ModelAdmin):
         "name",
         "slug",
         "room_type",
+        "is_permanent",
         "lifecycle_status",
         "active_participant_count",
         "access_level",
         "get_owner",
         "created_at",
     ]
-    list_filter = ["room_type", "lifecycle_status", "access_level", "created_at"]
+    list_filter = ["room_type", "is_permanent", "lifecycle_status", "access_level", "created_at"]
     readonly_fields = ["id", "created_at", "updated_at"]
 
     def get_queryset(self, request):

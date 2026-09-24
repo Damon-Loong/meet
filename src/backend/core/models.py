@@ -455,6 +455,11 @@ class Room(Resource):
         default=RoomTypeChoices.INSTANT,
         db_index=True,
     )
+    is_permanent = models.BooleanField(
+        default=False,
+        verbose_name="长期有效链接",
+        help_text="仅即时会议适用；空闲时链接不会自动失效。",
+    )
     lifecycle_status = models.CharField(
         max_length=20,
         choices=RoomLifecycleStatusChoices.choices,

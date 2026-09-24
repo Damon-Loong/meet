@@ -31,11 +31,13 @@ export const CreateMeetingMenu = () => {
     start,
     end,
     inviteEmails,
+    isPermanent,
   }: {
     topic: string
     start?: string
     end?: string
     inviteEmails: string[]
+    isPermanent: boolean
   }) => {
     const slug = generateRoomId()
     const data = await createRoom({
@@ -43,6 +45,7 @@ export const CreateMeetingMenu = () => {
       topic,
       username,
       roomType: creationMode === 'later' ? 'scheduled' : 'instant',
+      isPermanent: creationMode === 'instant' && isPermanent,
       scheduledStart: start,
       scheduledEnd: end,
       inviteEmails,

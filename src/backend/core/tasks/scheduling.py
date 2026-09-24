@@ -38,6 +38,7 @@ def process_scheduled_meetings():
     (
         models.Room.objects.filter(
             room_type=models.RoomTypeChoices.INSTANT,
+            is_permanent=False,
             lifecycle_status=models.RoomLifecycleStatusChoices.ACTIVE,
             active_participant_count=0,
         )
