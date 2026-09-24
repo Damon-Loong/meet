@@ -72,17 +72,18 @@ class AssignmentResult:
             a.speaker_label: a.participant_name for a in self.assignments
         }
 
-        name_to_speaker_count = defaultdict(int)
-        for name in speaker_to_name.values():
-            name_to_speaker_count[name] += 1
+        name_to_participant_ids = defaultdict(set)
+        for assignment in self.assignments:
+            name_to_participant_ids[assignment.participant_name].add(
+                assignment.participant_id
+            )
 
         def _replace_speaker(item: dict[str, Any]) -> dict[str, Any]:
             label = _speaker_label(item)
             if label in speaker_to_name:
                 name = speaker_to_name[label]
-                suffix = (
-                    f" ({label})" if name_to_speaker_count[name] > 1 else ""
-                )  # Add suffix only if there are multiple detected speakers per user
+                # Keep distinct participants with the same display name distinguishable.
+                suffix = f" ({label})" if len(name_to_participant_ids[name]) > 1 else ""
                 updated = {**item, "speaker": f"{name}{suffix}"}
                 if not item.get("speaker") and "text" in item:
                     updated["text"] = MOSS_SPEAKER_PREFIX.sub("", item["text"], count=1)
@@ -349,72 +350,19 @@ def _json_default(obj: Any) -> Any:
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
-def _best_unique_assignment(
-    scores: list[list[float]],
-    threshold: float,
-    excluded: tuple[int, int] | None = None,
-) -> tuple[float, list[int | None]]:
-    """Maximum-weight one-to-one assignment with an unmatched slot per speaker."""
-    rows = len(scores)
-    if not rows:
-        return 0.0, []
-    participants = len(scores[0])
-    columns = participants + rows
-    costs = [
-        [
-            -score if j < participants and score >= threshold and (i, j) != excluded
-            else 0.0 if j >= participants else 1_000_000.0
-            for j, score in enumerate(row + [0.0] * rows)
-        ]
-        for i, row in enumerate(scores)
-    ]
-    # Rectangular Hungarian algorithm (rows <= columns).
-    u = [0.0] * (rows + 1)
-    v = [0.0] * (columns + 1)
-    p = [0] * (columns + 1)
-    way = [0] * (columns + 1)
-    for i in range(1, rows + 1):
-        p[0] = i
-        j0 = 0
-        minv = [float("inf")] * (columns + 1)
-        used = [False] * (columns + 1)
-        while True:
-            used[j0] = True
-            i0 = p[j0]
-            delta = float("inf")
-            j1 = 0
-            for j in range(1, columns + 1):
-                if used[j]:
-                    continue
-                cur = costs[i0 - 1][j - 1] - u[i0] - v[j]
-                if cur < minv[j]:
-                    minv[j] = cur
-                    way[j] = j0
-                if minv[j] < delta:
-                    delta = minv[j]
-                    j1 = j
-            for j in range(columns + 1):
-                if used[j]:
-                    u[p[j]] += delta
-                    v[j] -= delta
-                else:
-                    minv[j] -= delta
-            j0 = j1
-            if p[j0] == 0:
-                break
-        while True:
-            j1 = way[j0]
-            p[j0] = p[j1]
-            j0 = j1
-            if j0 == 0:
-                break
-    assignment: list[int | None] = [None] * rows
-    for j in range(1, columns + 1):
-        if p[j] and j <= participants:
-            assignment[p[j] - 1] = j - 1
-    total = sum(scores[i][j] for i, j in enumerate(assignment) if j is not None)
-    return total, assignment
-
+def _best_participant(
+    scores: list[float], threshold: float
+) -> tuple[int | None, float, float]:
+    """Choose a participant independently for one detected speaker."""
+    if not scores:
+        return None, 0.0, 0.0
+    ranked = sorted(enumerate(scores), key=lambda item: item[1], reverse=True)
+    participant_index, best_score = ranked[0]
+    second_score = ranked[1][1] if len(ranked) > 1 else 0.0
+    margin = best_score - second_score
+    if best_score < threshold or margin < ASSIGNMENT_MARGIN:
+        return None, best_score, margin
+    return participant_index, best_score, margin
 
 def resolve_speaker_identities(
     metadata: dict[str, Any],
@@ -463,29 +411,24 @@ def resolve_speaker_identities(
             for pid in participants
         ])
 
-    total, chosen = _best_unique_assignment(scores, overlap_threshold)
-    for i, speaker in enumerate(speakers):
-        j = chosen[i]
+    for speaker, speaker_scores in zip(speakers, scores, strict=True):
+        j, score, margin = _best_participant(speaker_scores, overlap_threshold)
         if j is None:
             result.unassigned_speakers.append(speaker)
-            continue
-        alternative_total, _ = _best_unique_assignment(
-            scores, overlap_threshold, excluded=(i, j)
-        )
-        margin = total - alternative_total
-        if margin < ASSIGNMENT_MARGIN:
-            result.unassigned_speakers.append(speaker)
-            logger.info("Speaker %s remains ambiguous (margin=%.3f)", speaker, margin)
+            logger.info(
+                "Speaker %s remains unassigned (score=%.3f, margin=%.3f)",
+                speaker, score, margin,
+            )
             continue
         pid = participants[j]
         result.assignments.append(SpeakerAssignment(
             speaker_label=speaker,
             participant_id=pid,
             participant_name=participant_names.get(pid, pid),
-            score=scores[i][j],
+            score=score,
         ))
         logger.info("Assigned %s -> %s (score=%.3f, margin=%.3f)", speaker,
-                    participant_names.get(pid, pid), scores[i][j], margin)
+                    participant_names.get(pid, pid), score, margin)
 
     logger.debug(
         json.dumps(

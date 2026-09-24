@@ -383,7 +383,7 @@ class TestResolveSpeakerIdentities:
         assert "SPEAKER_00" in result.unassigned_speakers
 
     def test_multiple_speakers_same_user(self):
-        """A participant cannot be assigned to two different speaker labels."""
+        """One audio track can match multiple detected speaker labels."""
         metadata = {
             "events": [
                 {
@@ -408,10 +408,14 @@ class TestResolveSpeakerIdentities:
         result = resolve_speaker_identities(
             metadata, transcription, RECORDING_START, RECORDING_END
         )
-        assert len(result.assignments) == 1
-        assert len(result.unassigned_speakers) == 1
+        assert len(result.assignments) == 2
+        assert result.unassigned_speakers == []
         pids = {a.participant_id for a in result.assignments}
         assert pids == {"user-a"}
+        mapped = result.apply_to(transcription)
+        assert [s["speaker"] for s in mapped["segments"]] == [
+            "Shared Mic", "Shared Mic"
+        ]
 
     def test_two_users_two_speakers(self):
         """Each speaker maps to correct user by VAD overlap."""
@@ -458,7 +462,7 @@ class TestResolveSpeakerIdentities:
         assert by_speaker["SPEAKER_01"].participant_name == "Bob"
 
     def test_overlapping_speech_two_users(self):
-        """Simultaneous speech from two users still assigns each speaker correctly."""
+        """A speaker tied between simultaneous users remains unassigned."""
         # user-a speaks from t=1s to t=6s, user-b speaks from t=3s to t=8s
         # (3s overlap where both are speaking)
         # SPEAKER_00 diarization covers t=1.5–5.5 (mostly user-a)
@@ -504,11 +508,10 @@ class TestResolveSpeakerIdentities:
             RECORDING_END,
             overlap_threshold=0.3,
         )
-        assert len(result.assignments) == 2
+        assert len(result.assignments) == 1
         by_speaker = {a.speaker_label: a for a in result.assignments}
-        assert by_speaker["SPEAKER_00"].participant_name == "Alice"
         assert by_speaker["SPEAKER_01"].participant_name == "Bob"
-        assert result.unassigned_speakers == []
+        assert result.unassigned_speakers == ["SPEAKER_00"]
 
     def test_below_threshold(self):
         """Speaker with minimal overlap stays unassigned."""
@@ -750,21 +753,16 @@ def test_moss_label_maps_globally_with_vad_delay():
     assert mapped["word_segments"] is None
 
 
-def test_global_assignment_uses_other_speakers_to_break_close_scores():
-    scores = [[0.42, 0.39], [0.10, 0.70]]
-    total, chosen = user_assign._best_unique_assignment(scores, 0.30)
-    assert chosen == [0, 1]
-    alternative, _ = user_assign._best_unique_assignment(
-        scores, 0.30, excluded=(0, 0)
-    )
-    assert total - alternative >= user_assign.ASSIGNMENT_MARGIN
+def test_each_speaker_compares_its_own_participant_candidates():
+    first = user_assign._best_participant([0.933, 0.12], 0.30)
+    second = user_assign._best_participant([1.0, 0.168], 0.30)
+    assert first[0] == second[0] == 0
+    assert first[2] >= user_assign.ASSIGNMENT_MARGIN
+    assert second[2] >= user_assign.ASSIGNMENT_MARGIN
 
 
-def test_close_scores_without_other_evidence_remain_ambiguous():
-    scores = [[0.42, 0.39]]
-    total, chosen = user_assign._best_unique_assignment(scores, 0.30)
-    assert chosen == [0]
-    alternative, _ = user_assign._best_unique_assignment(
-        scores, 0.30, excluded=(0, 0)
-    )
-    assert total - alternative < user_assign.ASSIGNMENT_MARGIN
+def test_close_participant_scores_remain_ambiguous():
+    participant, score, margin = user_assign._best_participant([0.42, 0.39], 0.30)
+    assert participant is None
+    assert score == 0.42
+    assert margin < user_assign.ASSIGNMENT_MARGIN
