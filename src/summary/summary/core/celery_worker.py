@@ -67,7 +67,10 @@ from summary.core.shared_models import (
     webhook_payload_adapter,
 )
 from summary.core.transcript_formatter import TranscriptFormatter
-from summary.core.user_assign import resolve_speaker_identities
+from summary.core.user_assign import (
+    _build_participant_timelines,
+    resolve_speaker_identities,
+)
 from summary.core.webhook_service import (
     call_webhook_v2,
 )
@@ -112,7 +115,7 @@ def _request_transcription(audio_file, language: str, read_timeout: int) -> Tran
         "response_format": settings.whisperx_response_format,
     }
     if settings.whisperx_max_completion_tokens:
-        transcription_data["max_completion_tokens"] = (
+        transcription_data["max_new_tokens"] = (
             settings.whisperx_max_completion_tokens
         )
 
@@ -143,7 +146,7 @@ def transcribe_audio(
     recording_metadata: RecordingMetadata | None = None,
     participant_metadata: dict | None = None,
 ):
-    """Transcribe one original file, splitting only when it exceeds 80 minutes.
+    """Transcribe one original file, splitting only when it exceeds 30 minutes.
 
     Returns (transcription, already_mapped). Temporary chunks are always removed;
     the source recording remains untouched.
@@ -161,7 +164,28 @@ def transcribe_audio(
                 transcription = _request_transcription(audio_file, language, 10 * 60)
                 already_mapped = False
             else:
-                windows = chunk_windows(duration)
+                speech_intervals = None
+                if (
+                    recording_metadata is not None
+                    and participant_metadata is not None
+                    and participant_metadata.get("events")
+                ):
+                    try:
+                        timelines, _ = _build_participant_timelines(
+                            participant_metadata,
+                            recording_metadata.started_at,
+                            recording_metadata.ended_at,
+                        )
+                        speech_intervals = [
+                            (interval.start, interval.end)
+                            for participant_intervals in timelines.values()
+                            for interval in participant_intervals
+                        ]
+                    except Exception:
+                        logger.exception(
+                            "Unable to plan quiet audio cuts; using overlapping chunks"
+                        )
+                windows = chunk_windows(duration, speech_intervals)
                 logger.info(
                     "Long audio: %.1f seconds in %d sequential chunks",
                     duration,

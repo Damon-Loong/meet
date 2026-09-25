@@ -34,13 +34,49 @@ def test_short_audio_stays_whole():
     assert chunk_windows(CHUNK_SECONDS) == [(0.0, CHUNK_SECONDS)]
 
 
-def test_long_audio_uses_eighty_minute_windows_with_overlap():
+def test_long_audio_uses_thirty_minute_windows_with_overlap():
     windows = chunk_windows(CHUNK_SECONDS + 120)
     assert windows == [
         (0.0, CHUNK_SECONDS),
         (CHUNK_SECONDS - OVERLAP_SECONDS, CHUNK_SECONDS + 120),
     ]
     assert all(end - start <= CHUNK_SECONDS for start, end in windows)
+
+
+def test_quiet_gap_moves_boundary_without_overlap():
+    windows = chunk_windows(
+        CHUNK_SECONDS + 600,
+        [(0, 1798), (1820, CHUNK_SECONDS + 600)],
+    )
+    cut = windows[0][1]
+    assert 1808 < cut < 1809
+    assert windows == [(0.0, cut), (cut, CHUNK_SECONDS + 600)]
+
+
+def test_all_speakers_must_be_quiet_at_boundary():
+    windows = chunk_windows(
+        CHUNK_SECONDS + 600,
+        [(0, 1798), (1820, CHUNK_SECONDS + 600), (1795, 1825)],
+    )
+    assert windows == [
+        (0.0, CHUNK_SECONDS),
+        (CHUNK_SECONDS - OVERLAP_SECONDS, CHUNK_SECONDS + 600),
+    ]
+
+
+def test_missing_or_one_sided_vad_uses_overlap():
+    duration = CHUNK_SECONDS + 600
+    expected = [(0.0, CHUNK_SECONDS), (CHUNK_SECONDS - OVERLAP_SECONDS, duration)]
+    assert chunk_windows(duration, None) == expected
+    assert chunk_windows(duration, [(0, 1700)]) == expected
+
+
+def test_nearest_usable_gap_wins():
+    windows = chunk_windows(
+        CHUNK_SECONDS + 600,
+        [(0, 1790), (1800, 1830), (1840, CHUNK_SECONDS + 600)],
+    )
+    assert 1793 < windows[0][1] < 1795
 
 
 def test_shift_nested_word_timestamps_without_mutating_input():

@@ -5,24 +5,72 @@ import re
 import subprocess
 from pathlib import Path
 
-CHUNK_SECONDS = 80 * 60
+CHUNK_SECONDS = 30 * 60
 OVERLAP_SECONDS = 10
+SILENCE_SEARCH_SECONDS = 2 * 60
+MIN_SILENCE_SECONDS = 4.0
+VAD_START_GUARD_SECONDS = 1.5
+VAD_END_GUARD_SECONDS = 0.25
 SPEAKER_PREFIX = re.compile(r"^\s*\[([A-Za-z]\d{1,3})\]\s*")
 GENERIC_SPEAKER = re.compile(r"^(?:S\d{1,3}|SPEAKER_?\d{1,3})$", re.IGNORECASE)
 
 
-def chunk_windows(duration: float) -> list[tuple[float, float]]:
-    """Return (start, end) windows, each at most 80 minutes long."""
+def _quiet_cut(
+    target: float,
+    duration: float,
+    speech_intervals: list[tuple[float, float]],
+) -> float | None:
+    """Choose a silent midpoint near the target, using every speaker's VAD."""
+    search_start = max(0.0, target - SILENCE_SEARCH_SECONDS)
+    search_end = min(duration, target + SILENCE_SEARCH_SECONDS)
+    expanded = sorted(
+        (
+            max(0.0, start - VAD_START_GUARD_SECONDS),
+            min(duration, end + VAD_END_GUARD_SECONDS),
+        )
+        for start, end in speech_intervals
+        if end > start
+    )
+    merged: list[tuple[float, float]] = []
+    for start, end in expanded:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+
+    # Only gaps bracketed by observed speech are trustworthy. Missing or
+    # incomplete VAD data must fall back to the overlapping fixed boundary.
+    candidates = []
+    for left, right in zip(merged, merged[1:]):
+        gap_start = max(search_start, left[1])
+        gap_end = min(search_end, right[0])
+        if gap_end - gap_start >= MIN_SILENCE_SECONDS:
+            cut = (gap_start + gap_end) / 2
+            candidates.append((abs(cut - target), -(gap_end - gap_start), cut))
+    return min(candidates)[2] if candidates else None
+
+
+def chunk_windows(
+    duration: float,
+    speech_intervals: list[tuple[float, float]] | None = None,
+) -> list[tuple[float, float]]:
+    """Target 30-minute chunks; cut at nearby silence when VAD permits."""
     if duration <= 0:
         raise ValueError("Audio duration must be positive")
     windows = []
     start = 0.0
     while start < duration:
-        end = min(start + CHUNK_SECONDS, duration)
-        windows.append((start, end))
-        if end == duration:
+        target = min(start + CHUNK_SECONDS, duration)
+        if target == duration:
+            windows.append((start, duration))
             break
-        start = end - OVERLAP_SECONDS
+        cut = _quiet_cut(target, duration, speech_intervals or [])
+        if cut is None:
+            windows.append((start, target))
+            start = target - OVERLAP_SECONDS
+        else:
+            windows.append((start, cut))
+            start = cut
     return windows
 
 
