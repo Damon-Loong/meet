@@ -1,0 +1,4 @@
+# AfB summary-model settings only; merge into the existing deployment env file.
+# This is not a complete summary-service configuration. Keep LLM_API_KEY private.
+LLM_BASE_URL=https://afb-model.mbmzone.com/afb-coca/v1
+LLM_MODEL=afb-coca
