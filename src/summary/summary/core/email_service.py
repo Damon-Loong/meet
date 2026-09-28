@@ -29,9 +29,17 @@ def _meeting_name(title: str, summary: str) -> str:
         "",
     )
     if first_heading:
-        return first_heading.removesuffix("｜会议总结").strip()
+        return (
+            first_heading.removesuffix("｜会议总结").removesuffix("｜会议纪要").strip()
+        )
 
-    return title.removesuffix("的会议总结").strip() or "会议"
+    # Concise minutes start with a bold date, so use the system-supplied title.
+    name = title.removesuffix("的会议总结").strip()
+    generated_title = re.fullmatch(
+        r'(?:Summary of )?Meeting "(.+)" on \d{4}-\d{2}-\d{2} at \d{2}:\d{2}',
+        name,
+    )
+    return generated_title.group(1) if generated_title else name or "会议"
 
 
 def _safe_filename(value: str) -> str:
@@ -113,15 +121,13 @@ def send_meeting_documents(
             for label, url in media_links
         )
         + '<p style="margin:4px 0 0;color:#62748a;font-size:13px;line-height:1.6;">'
-        '以上链接自本邮件生成起 24 小时内有效，请及时下载保存。</p></div>'
+        "以上链接自本邮件生成起 24 小时内有效，请及时下载保存。</p></div>"
         if media_links
         else ""
     )
 
     message = EmailMessage()
-    message["Subject"] = (
-        f"[{settings.email_brand_name}] 会议资料已生成｜{meeting_name}"
-    )
+    message["Subject"] = f"[{settings.email_brand_name}] 会议资料已生成｜{meeting_name}"
     message["From"] = settings.email_from
     message["To"] = ", ".join(recipients)
     message.set_content(

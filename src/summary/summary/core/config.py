@@ -99,6 +99,16 @@ class Settings(BaseSettings):
     llm_base_url: str
     llm_api_key: SecretStr
     llm_model: str
+    # Opt-in until source-backed generation passes real-meeting acceptance.
+    summary_evidence_enabled: bool = False
+    summary_evidence_max_source_chars: int = Field(default=50000, ge=1000)
+    # Separate opt-ins; require a persistent state volume and explicit tenant.
+    meeting_memory_read_enabled: bool = False
+    meeting_memory_write_enabled: bool = False
+    meeting_memory_tenant_id: str = ""
+    meeting_memory_config_file: str = "/run/secrets/meet-knowledge.json"
+    meeting_memory_state_file: str = "/var/lib/meet-memory/state.sqlite3"
+    meeting_memory_internal_domains: list[str] = Field(default_factory=list)
     summary_output_language: str = "zh-CN"
     document_timezone: str = "Asia/Shanghai"
     default_context_language: str = "en"

@@ -105,6 +105,7 @@ class LLMService:
         """Init the LLMService once."""
         self._client = llm_observability.get_openai_client()
         self._observability = llm_observability
+        self.last_response_metadata = None
 
     def call(
         self,
@@ -116,9 +117,10 @@ class LLMService:
         """Call the LLM service.
 
         Takes a system prompt and a user prompt, and returns the LLM's response
-        Returns None if the call fails.
+        Rejects incomplete, refused or empty responses before downstream delivery.
         """
         try:
+            self.last_response_metadata = None
             if settings.summary_output_language:
                 system_prompt = (
                     f"{system_prompt}\n\n"
@@ -156,8 +158,30 @@ class LLMService:
                 }
 
             response = self._client.chat.completions.create(**params)
-            return response.choices[0].message.content
+            if not response.choices:
+                raise LLMException("Model response has no choices")
+            choice = response.choices[0]
+            self.last_response_metadata = {
+                "response_id": response.id,
+                "model": response.model,
+                "finish_reason": choice.finish_reason,
+                "usage": response.usage.model_dump() if response.usage else None,
+            }
+            logger.info(
+                "LLM completion metadata | %s | %s", name, self.last_response_metadata
+            )
+            if choice.finish_reason != "stop":
+                raise LLMException(
+                    f"Model response did not finish normally: {choice.finish_reason}"
+                )
+            if getattr(choice.message, "refusal", None):
+                raise LLMException("Model refused the summary request")
+            if not choice.message.content or not choice.message.content.strip():
+                raise LLMException("Model returned empty content")
+            return choice.message.content
 
+        except LLMException:
+            raise
         except Exception as e:
             logger.exception("LLM call failed: %s", e)
             raise LLMException(f"LLM call failed: {e}") from e
