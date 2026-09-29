@@ -2,7 +2,7 @@
 
 # ruff: noqa: PLR0913
 
-import json
+import hashlib
 import re
 import tempfile
 import time
@@ -22,6 +22,10 @@ from summary.core.analytics import MetadataManager, get_analytics
 from summary.core.config import get_settings
 from summary.core.docs_service import create_document_in_lasuite_docs
 from summary.core.email_service import send_meeting_documents
+from summary.core.evidence_summary import (
+    SummaryReviewRequired,
+    generate_evidence_summary,
+)
 from summary.core.file_service import (
     CorruptedAudioFile,
     FileService,
@@ -29,6 +33,7 @@ from summary.core.file_service import (
     TranscribeError,
 )
 from summary.core.llm_service import LLMException, LLMObservability, LLMService
+from summary.core.locales import get_locale
 from summary.core.long_audio import (
     CHUNK_SECONDS,
     chunk_windows,
@@ -37,22 +42,16 @@ from summary.core.long_audio import (
     namespace_unmatched,
     shift_timestamps,
 )
-from summary.core.locales import get_locale
 from summary.core.models import (
     PushToDocsBaseConfig,
     RecordingMetadata,
     SummarizeTaskJob,
     TranscribeTaskJob,
 )
+from summary.core.meeting_memory import allowed, open_memory, optional_history
+from summary.core.personal_memory import PersonalMemory, personal_context
+from summary.core.summary_quality import ensure_deliverable
 from summary.core.prompt import (
-    FORMAT_NEXT_STEPS,
-    FORMAT_PLAN,
-    PROMPT_SYSTEM_CLEANING,
-    PROMPT_SYSTEM_NEXT_STEP,
-    PROMPT_SYSTEM_PART,
-    PROMPT_SYSTEM_PLAN,
-    PROMPT_SYSTEM_TLDR,
-    PROMPT_USER_PART,
     PROMPT_SYSTEM_FINAL_SUMMARY,
     PROMPT_SYSTEM_SEGMENT_EXTRACT,
     PROMPT_USER_FINAL_SUMMARY,
@@ -65,6 +64,9 @@ from summary.core.shared_models import (
     TranscribeWebhookSuccessPayload,
     WhisperXResponse,
     webhook_payload_adapter,
+)
+from summary.core.summary_document import (
+    SUMMARY_RESPONSE_FORMAT,
 )
 from summary.core.transcript_formatter import TranscriptFormatter
 from summary.core.user_assign import (
@@ -105,7 +107,9 @@ if settings.sentry_dsn and settings.sentry_is_enabled:
 file_service = FileService()
 
 
-def _request_transcription(audio_file, language: str, read_timeout: int) -> Transcription:
+def _request_transcription(
+    audio_file, language: str, read_timeout: int
+) -> Transcription:
     """Send one audio file to the configured OpenAI-compatible ASR endpoint."""
     url = urljoin(settings.whisperx_base_url.rstrip("/") + "/", "audio/transcriptions")
     transcription_data = {
@@ -115,9 +119,7 @@ def _request_transcription(audio_file, language: str, read_timeout: int) -> Tran
         "response_format": settings.whisperx_response_format,
     }
     if settings.whisperx_max_completion_tokens:
-        transcription_data["max_new_tokens"] = (
-            settings.whisperx_max_completion_tokens
-        )
+        transcription_data["max_new_tokens"] = settings.whisperx_max_completion_tokens
 
     res = requests.post(
         url,
@@ -134,7 +136,9 @@ def _request_transcription(audio_file, language: str, read_timeout: int) -> Tran
     res.raise_for_status()
     data: dict[str, Any] = res.json()
     data.pop("usage", None)
-    return Transcription.model_validate({"text": "", **data}, extra="allow", strict=False)
+    return Transcription.model_validate(
+        {"text": "", **data}, extra="allow", strict=False
+    )
 
 
 def transcribe_audio(
@@ -200,7 +204,9 @@ def transcribe_audio(
                         extract_chunk(Path(audio_file.name), path, start, end)
                         try:
                             with path.open("rb") as chunk_file:
-                                chunk = _request_transcription(chunk_file, language, 60 * 60)
+                                chunk = _request_transcription(
+                                    chunk_file, language, 60 * 60
+                                )
                         finally:
                             path.unlink(missing_ok=True)
 
@@ -227,8 +233,12 @@ def transcribe_audio(
                 already_mapped = True
 
             transcription_duration = round(time.time() - started, 2)
-            metadata_manager.track(task_id, {"transcription_time": transcription_duration})
-            logger.info("Transcription received in %.2f seconds", transcription_duration)
+            metadata_manager.track(
+                task_id, {"transcription_time": transcription_duration}
+            )
+            logger.info(
+                "Transcription received in %.2f seconds", transcription_duration
+            )
 
     except FileServiceException as e:
         # For v2 pipeline we want failures not silent errors like this
@@ -372,7 +382,9 @@ def format_actions(llm_output: dict, participants: list[str] | None = None) -> s
         lines.append("| - | 本次未识别到明确分配的待办 | - | - |")
     if pending:
         lines.extend(["", "## 负责人待确认", ""])
-        lines.extend(f"- {title}（时间要求：{due_date}）" for title, due_date in pending)
+        lines.extend(
+            f"- {title}（时间要求：{due_date}）" for title, due_date in pending
+        )
     return "\n".join(lines)
 
 
@@ -384,11 +396,13 @@ def format_summary_document(*, transcript: str, summary: str, title: str) -> str
         "重要决策、人名、数据和行动项请以人工确认为准。"
     )
 
-    # The current summarization prompt generates the complete document. Keep
-    # the AI result intact instead of prepending a second title and metadata
+    # The concise renderer already supplies the complete document. Keep
+    # its result intact instead of prepending a second title and metadata
     # block. The fallback below remains for summaries created by the legacy
     # prompt chain.
-    if re.search(r"^# .+｜会议纪要\s*$", summary, flags=re.MULTILINE):
+    if summary.startswith("**会议纪要｜") or re.search(
+        r"^# .+｜会议纪要\s*$", summary, flags=re.MULTILINE
+    ):
         return f"{summary.strip()}\n\n---\n\n{disclaimer}\n"
 
     def section(name: str) -> str:
@@ -419,14 +433,37 @@ def format_summary_document(*, transcript: str, summary: str, title: str) -> str
     )
 
 
+def _summarize_with_evidence(transcript, llm_service, audit_callback):
+    """Preserve private preview evidence before enforcing the delivery gate."""
+    audit = generate_evidence_summary(
+        transcript,
+        llm_service.call,
+        max_source_chars=settings.summary_evidence_max_source_chars,
+    )
+    if audit_callback is not None:
+        audit_callback(audit)
+    if not audit.safe_to_deliver:
+        raise SummaryReviewRequired()
+    return audit.markdown
+
+
 def summarize_transcription_internals(
-    *, distinct_id: str, transcript: str, session_id: str
+    *,
+    distinct_id: str,
+    transcript: str,
+    session_id: str,
+    audit_callback=None,
+    history_context: str = "",
 ) -> str:
     """Generate a summary from the provided transcription text.
 
     1. Splits the timestamped transcript into four chronological segments.
     2. Uses the LLM to extract reliable facts from each segment.
-    3. Uses one final LLM call to reconcile and write the complete Markdown report.
+    3. Uses one final LLM call to reconcile structured content.
+    4. Validates that content and renders the concise Markdown template.
+
+    The opt-in evidence mode replaces these steps with overlapping windows,
+    source checks and full-transcript review before deterministic rendering.
     """
     logger.info(
         "Starting summarization task | Owner: %s",
@@ -449,9 +486,13 @@ def summarize_transcription_internals(
     )
     llm_service = LLMService(llm_observability=llm_observability)
 
-    transcript_heading = re.search(
-        r"^## 逐字转录\s*$", transcript, flags=re.MULTILINE
-    )
+    if settings.summary_evidence_enabled:
+        try:
+            return _summarize_with_evidence(transcript, llm_service, audit_callback)
+        finally:
+            llm_observability.flush()
+
+    transcript_heading = re.search(r"^## 逐字转录\s*$", transcript, flags=re.MULTILINE)
     if transcript_heading:
         meeting_context = transcript[: transcript_heading.start()].strip()
         transcript_body = transcript[transcript_heading.end() :].strip()
@@ -521,14 +562,31 @@ def summarize_transcription_internals(
         meeting_context=meeting_context,
         segment_extracts="\n\n".join(segment_extracts),
     )
+    if history_context:
+        final_prompt += "\n\n历史会议参考（非本次转录）：\n" + history_context
     summary = llm_service.call(
         PROMPT_SYSTEM_FINAL_SUMMARY,
         final_prompt,
         name="final-summary",
+        response_format=SUMMARY_RESPONSE_FORMAT,
     )
+    # Do not email malformed JSON or fall back to the old long-form layout.
+    # A validation error follows the existing task failure/retry path.
+    try:
+        summary = ensure_deliverable(
+            summary,
+            transcript,
+            history_context,
+            llm_service.call,
+            PROMPT_SYSTEM_FINAL_SUMMARY,
+        )
+    except SummaryReviewRequired:
+        logger.error("Summary quality gate failed; delivery blocked, review required")
+        raise
+    finally:
+        llm_observability.flush()
     logger.info("Final summary generated")
 
-    llm_observability.flush()
     logger.debug("LLM observability flushed")
 
     return summary
@@ -559,6 +617,97 @@ def _should_push_to_docs(
 
     logger.info("Push to docs is not requested: %s", reason)
     return False
+
+
+def enqueue_meeting_archive(tenant_id, transcript, source):
+    """Archive independently; broker trouble must not fail transcription/email."""
+    if not settings.meeting_memory_write_enabled or not allowed(settings, tenant_id):
+        return
+    try:
+        archive_meeting_task.apply_async(args=[tenant_id, transcript, source])
+    except Exception:
+        logger.warning("Meeting archive enqueue failed; original transcript retained")
+
+
+def enqueue_personal_memory(tenant, transcript, source, participants):
+    """Do not let personal-memory queue failures retry a sent meeting email."""
+    if not settings.personal_memory_enabled or not allowed(settings, tenant):
+        return
+    try:
+        update_personal_memory_task.apply_async(
+            args=[tenant, transcript, source, participants]
+        )
+    except Exception:
+        logger.warning("Personal memory enqueue failed; meeting delivery unaffected")
+
+
+@celery.task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=3,
+    queue=settings.summarize_queue_v2,
+)
+def update_personal_memory_task(self, tenant, transcript, source, participants):
+    """Extract independently after delivery; never enqueue summary or email jobs."""
+    if not settings.personal_memory_enabled or not allowed(settings, tenant):
+        return {"status": "disabled"}
+    observation = None
+    try:
+        observation = LLMObservability(session_id=source, user_id="personal-memory")
+        llm = LLMService(observation)
+        memory = PersonalMemory(
+            settings.meeting_memory_state_file, tenant, settings.document_timezone
+        )
+        result = memory.ingest(transcript, source, participants, llm.call)
+        if result.get("status") == "needs_retry":
+            raise LLMException("No usable memory evidence; retry extraction")
+        return result
+    except Exception:
+        if self.request.retries >= self.max_retries:
+            logger.critical(
+                "Personal memory retries exhausted | task=%s source=%s; "
+                "meeting email is unaffected",
+                self.request.id,
+                source,
+            )
+        raise
+    finally:
+        if observation:
+            observation.flush()
+
+
+@celery.task(queue=settings.summarize_queue_v2)
+def archive_meeting_task(tenant_id, transcript, source):
+    """Submit indexing separately from mail; never replay a summary on failure."""
+    if not settings.meeting_memory_write_enabled or not allowed(settings, tenant_id):
+        return {"status": "disabled"}
+    try:
+        job = open_memory(settings).archive(transcript, source)
+        check_meeting_archive_task.apply_async(args=[tenant_id, job], countdown=30)
+        return {"status": "queued", "job_id": job}
+    except Exception:
+        logger.warning("Meeting archive submission failed; retry archive only")
+        return {"status": "failed"}
+
+
+@celery.task(queue=settings.summarize_queue_v2)
+def check_meeting_archive_task(tenant_id, job, attempt=0):
+    """Poll a bounded number of times without reuploading or blocking a worker."""
+    if not settings.meeting_memory_write_enabled or not allowed(settings, tenant_id):
+        return {"status": "disabled"}
+    try:
+        status = open_memory(settings).refresh(job)
+        if status == "queued" and attempt < 19:
+            check_meeting_archive_task.apply_async(
+                args=[tenant_id, job, attempt + 1], countdown=60
+            )
+        return {"status": status, "job_id": job}
+    except Exception:
+        logger.warning("Meeting archive status unavailable; no reupload performed")
+        return {"status": "status_unavailable", "job_id": job}
 
 
 def _should_auto_create_summary(payload: TranscribeTaskJob) -> bool:
@@ -650,9 +799,7 @@ def process_audio_transcribe_v2_task(
             recording_metadata=payload.metadata,
             participant_metadata=participant_metadata,
         )
-        transcription_res = WhisperXResponse(
-            **raw_transcription.model_dump()
-        )
+        transcription_res = WhisperXResponse(**raw_transcription.model_dump())
     except TranscribeError as e:
         failure_payload = TranscribeWebhookFailurePayload(
             job_id=job_id,
@@ -728,6 +875,10 @@ def process_audio_transcribe_v2_task(
                         ),
                     ),
                     content=content,
+                    # Collector participantId is a connection SID, not an account.
+                    participants=(
+                        payload.metadata.participants if payload.metadata else []
+                    ),
                 ).model_dump()
             ],
         )
@@ -735,6 +886,9 @@ def process_audio_transcribe_v2_task(
     file_service.store_transcript(
         transcript=transcription_res,
         job_id=job_id,
+    )
+    enqueue_meeting_archive(
+        payload.tenant_id, content, str(payload.media_recording_id or job_id)
     )
 
     success_payload = TranscribeWebhookSuccessPayload(
@@ -800,6 +954,7 @@ def handle_transcribe_v2_failed(  # noqa: PLR0917
 @celery.task(
     bind=True,
     autoretry_for=[LLMException, Exception],
+    dont_autoretry_for=[SummaryReviewRequired],
     max_retries=settings.celery_max_retries,
     queue=settings.summarize_queue_v2,
 )
@@ -814,10 +969,36 @@ def summarize_v2_task(
     2. Sends the final summary via webhook.
     """
     payload = SummarizeTaskJob.model_validate(payload)
+    # Include all configured document/email recipients, not just the initiator.
+    recipients = list(payload.recipient_emails or [])
+    if payload.user_email:
+        recipients.append(payload.user_email)
+    if payload.push_to_docs_config:
+        recipients.append(payload.push_to_docs_config.user_email)
+    history = (
+        optional_history(
+            settings,
+            payload.tenant_id,
+            recipients,
+            payload.content,
+            str(payload.media_recording_id or self.request.id),
+        )
+        if not settings.summary_evidence_enabled
+        else ""
+    )
+    source = str(
+        payload.media_recording_id
+        or hashlib.sha256(payload.content.encode()).hexdigest()
+    )
+    if not settings.summary_evidence_enabled:
+        history += personal_context(
+            settings, payload.tenant_id, payload.participants, payload.content, source
+        )
     summary = summarize_transcription_internals(
         distinct_id=payload.user_sub,
         transcript=payload.content,
         session_id=self.request.id,
+        **({"history_context": history} if history else {}),
     )
     summary = format_summary_document(
         transcript=payload.content,
@@ -866,6 +1047,10 @@ def summarize_v2_task(
     )
     metadata_manager.capture(job_id, settings.posthog_summary_success)
 
+    enqueue_personal_memory(
+        payload.tenant_id, payload.content, source, payload.participants
+    )
+
     return success_payload.model_dump()
 
 
@@ -897,7 +1082,7 @@ def handle_summarize_v2_failed(  # noqa: PLR0917
 
     Tracks the failure event in analytics and sends a failure webhook to the client.
     """
-    logger.warn(
+    logger.critical(
         "Summary task %s failed, no more retries left, sending failure webhook.",
         task_id,
     )
