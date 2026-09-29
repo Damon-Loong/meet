@@ -92,13 +92,11 @@ def config():
     )
 
 
-def test_disabled_foreign_tenant_or_outsider_never_queries(monkeypatch):
+def test_disabled_or_foreign_tenant_never_queries(monkeypatch):
     opening = Mock()
     monkeypatch.setattr(memory, "open_memory", opening)
     cfg = config()
     assert memory.optional_history(cfg, "other", ["a@example.com"], "text", "r") == ""
-    assert memory.optional_history(cfg, "tenant", ["a@outside.com"], "text", "r") == ""
-    assert memory.optional_history(cfg, "tenant", [], "text", "r") == ""
     cfg.meeting_memory_read_enabled = False
     assert memory.optional_history(cfg, "tenant", ["a@example.com"], "text", "r") == ""
     opening.assert_not_called()
@@ -116,3 +114,14 @@ def test_lookup_failure_falls_back_without_secret_log(monkeypatch, caplog):
 def test_no_date_no_lookup(store):
     assert store.history("未注明日期", "r") == ""
     store.client.query.assert_not_called()
+
+
+@pytest.mark.parametrize("recipients", [["member@gmail.com"], ["user@qq.com"], []])
+def test_meeting_members_do_not_require_email_domain_allowlist(monkeypatch, recipients):
+    store = Mock()
+    store.history.return_value = "history"
+    monkeypatch.setattr(memory, "open_memory", lambda _: store)
+    assert (
+        memory.optional_history(config(), "tenant", recipients, "text", "r")
+        == "history"
+    )

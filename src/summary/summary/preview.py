@@ -39,6 +39,11 @@ def parse_args():
     parser.add_argument("transcript", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument(
+        "--history-context",
+        type=Path,
+        help="Private retrieved history file for no-delivery preview only",
+    )
+    parser.add_argument(
         "--resume-audit",
         type=Path,
         help="Repair a private prior audit for the exact same transcript, then review",
@@ -151,6 +156,11 @@ def main():
                 transcript=transcript,
                 session_id="local-preview",
                 audit_callback=save_audit,
+                history_context=(
+                    args.history_context.read_text(encoding="utf-8")
+                    if args.history_context
+                    else ""
+                ),
             )
         except SummaryReviewRequired:
             needs_review = True

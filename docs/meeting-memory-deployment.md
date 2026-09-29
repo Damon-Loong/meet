@@ -12,7 +12,6 @@ sends mail. Archive failures require archive-only recovery, not meeting replay.
 - `MEETING_MEMORY_WRITE_ENABLED=false`
 - `MEETING_MEMORY_READ_ENABLED=false`
 - `MEETING_MEMORY_TENANT_ID`: explicitly authorized tenant ID.
-- `MEETING_MEMORY_INTERNAL_DOMAINS`: JSON list of approved internal email domains.
 - `MEETING_MEMORY_CONFIG_FILE=/run/secrets/meet-knowledge.json`
 - `MEETING_MEMORY_STATE_FILE=/var/lib/meet-memory/state.sqlite3`
 
@@ -30,8 +29,10 @@ filesystem that does not support its locking semantics.
 ## Behavior and acceptance
 
 One shared library is used within the approved tenant, not separate person or
-project libraries. Retrieval requires approved internal recipients. An empty
-recipient/domain configuration disables history. No history is added to the
+project libraries. All meeting participants are members under the approved
+shared-team policy; email domains do not gate retrieval. The existing meeting
+recipient list is not expanded. Tenant isolation remains mandatory.
+No history is added to the
 experimental strict-evidence path.
 
 Only source versions recorded as completely indexed in the state database are

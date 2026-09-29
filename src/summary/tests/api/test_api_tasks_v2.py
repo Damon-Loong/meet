@@ -43,6 +43,8 @@ class TestTasksV2:
                 "tenant_id": "test-tenant",
                 "user_email": None,
                 "metadata": None,
+                "recipient_emails": [],
+                "media_recording_id": None,
                 "push_to_docs_config": None,
             }
         ]
@@ -78,6 +80,8 @@ class TestTasksV2:
                 "content": "This is a long meeting transcript to summarize.",
                 "tenant_id": "test-tenant",
                 "user_email": None,
+                "recipient_emails": [],
+                "media_recording_id": None,
             }
         ]
 

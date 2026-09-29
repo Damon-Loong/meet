@@ -108,7 +108,6 @@ class Settings(BaseSettings):
     meeting_memory_tenant_id: str = ""
     meeting_memory_config_file: str = "/run/secrets/meet-knowledge.json"
     meeting_memory_state_file: str = "/var/lib/meet-memory/state.sqlite3"
-    meeting_memory_internal_domains: list[str] = Field(default_factory=list)
     summary_output_language: str = "zh-CN"
     document_timezone: str = "Asia/Shanghai"
     default_context_language: str = "en"

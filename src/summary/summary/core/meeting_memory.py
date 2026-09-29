@@ -40,15 +40,6 @@ def allowed(settings, tenant_id):
     )
 
 
-def internal_recipients(settings, recipients):
-    """No personal/project split, but do not leak shared history to outsiders."""
-    domains = {d.lower() for d in settings.meeting_memory_internal_domains}
-    return bool(recipients and domains) and all(
-        "@" in str(email) and str(email).rsplit("@", 1)[1].lower() in domains
-        for email in recipients
-    )
-
-
 class MeetingMemory:
     """Track remote indexing state in a persistent server-only SQLite file."""
 
@@ -203,11 +194,7 @@ def open_memory(settings):
 
 def optional_history(settings, tenant_id, recipients, transcript, source):
     """Fail soft on retrieval, without logging transcripts or provider secrets."""
-    if (
-        not settings.meeting_memory_read_enabled
-        or not allowed(settings, tenant_id)
-        or not internal_recipients(settings, recipients)
-    ):
+    if not settings.meeting_memory_read_enabled or not allowed(settings, tenant_id):
         return ""
     try:
         history = open_memory(settings).history(transcript, source)
