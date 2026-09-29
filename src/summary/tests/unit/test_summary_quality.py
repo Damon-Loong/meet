@@ -61,6 +61,15 @@ def test_local_fragment_check_overrides_optimistic_reviewer():
         ensure_deliverable(broken, "原文", "", call, "规则")
 
 
+def test_real_meeting_dangling_speaker_is_repaired():
+    call = Mock(side_effect=[GOOD, draft("确定两个方向，每个方向两人。"), GOOD])
+    result = ensure_deliverable(
+        draft("确定两个方向。Marsh确认"), "原文", "", call, "规则"
+    )
+    assert "Marsh确认" not in result
+    assert "每个方向两人" in result
+
+
 def test_review_outage_does_not_block():
     assert "仅为预计" in ensure_deliverable(
         draft(), "原文", "", Mock(side_effect=TimeoutError), "规则"

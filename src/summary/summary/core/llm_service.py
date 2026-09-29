@@ -107,7 +107,19 @@ class LLMService:
         self._observability = llm_observability
         self.last_response_metadata = None
 
-    def call(
+    def call(self, system_prompt, user_prompt, name, response_format=None):
+        """Retry one empty completion locally before the task-level retry."""
+        for attempt in range(2):
+            try:
+                return self._call_once(
+                    system_prompt, user_prompt, name, response_format
+                )
+            except LLMException as exc:
+                if str(exc) != "Model returned empty content" or attempt:
+                    raise
+                logger.warning("Empty model response; retrying call once | %s", name)
+
+    def _call_once(
         self,
         system_prompt: str,
         user_prompt: str,

@@ -70,7 +70,8 @@ quote必须逐字复制本次转录中含时间、发言人及明确责任/状�
 task默认pending，明确在做为in_progress；明确做完才completed，明确取消才cancelled。
 本次没提到的旧任务不要输出；过去完成不意味着新任务已完成。未完成/差一点/计划完成都不是完成。
 职责明确长期有效才active，否则needs_confirmation。期限仅复制原话，没说就空，不计算或猜日期。
-历史和本次冲突、代词不清、身份同名或含糊时用needs_confirmation，不自行裁决。
+同名人员视为同一人。本次明确的新说法、调整和进度优先于历史，正常更新，不因变化而标记待确认。
+只有本次责任归属或表述本身含糊时才用needs_confirmation。
 text简短描述任务/职责，保留限制条件；保留完成情况与任务原意，不凭知识补充。
 """
 
@@ -153,13 +154,19 @@ class PersonalMemory:
             return result
 
     def register(self, participants):
-        """Account equality is authoritative; names alone never merge accounts."""
+        """Reuse exact names within this tenant, including returning visitors."""
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             for participant in participants[:200]:
                 account = str(participant.get("identity") or "").strip()[:200]
                 name = str(participant.get("name") or "").strip()[:100]
-                if not account or not name or account.upper().startswith("EG_"):
+                if (
+                    not account
+                    or not name
+                    or account.upper().startswith(("EG_", "PA_"))
+                    or account.lower().startswith("metadata-collector-")
+                    or name.lower().startswith("metadata-collector-")
+                ):
                     continue
                 person = hashlib.sha256(
                     f"{self.tenant}:{account}".encode()
@@ -168,7 +175,12 @@ class PersonalMemory:
                     "SELECT person FROM pm_accounts WHERE tenant=? AND account=?",
                     (self.tenant, account),
                 ).fetchone()
-                person = existing[0] if existing else person
+                named = db.execute(
+                    "SELECT id FROM pm_people WHERE tenant=? AND name=? "
+                    "ORDER BY rowid LIMIT 1",
+                    (self.tenant, name),
+                ).fetchone()
+                person = existing[0] if existing else (named[0] if named else person)
                 db.execute(
                     "INSERT OR IGNORE INTO pm_people VALUES (?,?,?)",
                     (self.tenant, person, name),
@@ -451,14 +463,35 @@ class PersonalMemory:
         body = transcript.split("## 逐字转录", 1)[-1]
         accepted = []
         for fact in result.facts:
-            if (
-                fact.quote not in body.splitlines()
-                or not re.match(r"^- \*\*\[\d{2}:\d{2}:\d{2}\]", fact.quote)
-                or not fact.text.strip()
-            ):
-                raise ValueError("Memory evidence is not in this meeting")
+            # Accept a unique verbatim excerpt, restoring the source line. A bad
+            # proposal must not discard every valid memory from this meeting.
+            excerpt = re.sub(
+                r"^(?:-\s*)?(?:\*\*)?\[\d{2}:\d{2}:\d{2}\]\s*"
+                r"[^：:\n]+[：:](?:\*\*)?\s*",
+                "",
+                fact.quote,
+            ).strip()
+            matches = [
+                line for line in body.splitlines() if excerpt and excerpt in line
+            ]
+            if fact.quote in body.splitlines():
+                pass
+            elif len(excerpt) >= 8 and len(matches) == 1:
+                fact.quote = matches[0]
+            else:
+                logger.warning(
+                    "Skipping individual memory proposal without source evidence"
+                )
+                continue
             person = known.get(fact.person_id)
             status = fact.status
+            spoken = fact.quote.split("：**", 1)[-1].strip()
+            if re.fullmatch(
+                r"[嗯啊哦，、。！!\s]*(?:可以|好的?|行|对|我感觉可以|没问题|OK)[嗯啊哦，、。！!\s可以好的行对我感觉没问题OK]*",
+                spoken,
+            ):
+                # Agreement alone is not a personal promise to perform a task.
+                status = "needs_confirmation"
             if fact.kind == "task" and status == "active":
                 status = "needs_confirmation"
             matching = {
@@ -466,7 +499,7 @@ class PersonalMemory:
                 for p in people
                 if any(alias in fact.quote for alias in p["aliases"])
             }
-            if not person or matching != {person["id"]}:
+            if not person or person["id"] not in matching:
                 person, status = None, "needs_confirmation"
             if fact.deadline and fact.deadline not in fact.quote:
                 fact.deadline, status = "", "needs_confirmation"
@@ -501,6 +534,8 @@ class PersonalMemory:
                 # A conflicting or unknown target becomes a separate review candidate.
                 fact.item_id, status = "", "needs_confirmation"
             accepted.append((fact, person["id"] if person else "", status))
+        if result.facts and not accepted:
+            return {"status": "needs_retry", "records": 0}
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(

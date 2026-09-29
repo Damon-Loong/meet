@@ -47,6 +47,22 @@ def test_refusal_is_rejected():
         service_with_response(refusal="no").call("system", "source", "test")
 
 
+def test_empty_completion_recovers_without_restarting_task():
+    service = service_with_response()
+    service._call_once = Mock(
+        side_effect=[LLMException("Model returned empty content"), "完整纪要。"]
+    )
+    assert service.call("system", "source", "test") == "完整纪要。"
+    assert service._call_once.call_count == 2
+
+
+def test_empty_completion_retry_is_bounded():
+    service = service_with_response(content="")
+    with pytest.raises(LLMException, match="empty content"):
+        service.call("system", "source", "test")
+    assert service._client.chat.completions.create.call_count == 2
+
+
 def test_success_records_metadata_without_prompt_content():
     service = service_with_response()
     assert service.call("system", "PRIVATE SOURCE", "test") == "测试结果"

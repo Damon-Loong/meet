@@ -63,6 +63,72 @@ def test_no_mention_does_not_finish(memory):
     assert memory.items()[0]["status"] == "pending"
 
 
+def test_agreement_alone_is_not_confirmed_personal_task(memory):
+    line = "- **[00:02:00] 小王：** 可以，我感觉可以。"
+    ingest(memory, [proposal(memory, quote=line, deadline="")], text=transcript(line))
+    assert memory.items()[0]["status"] == "needs_confirmation"
+
+
+def test_memory_task_retries_without_sending_mail(monkeypatch):
+    from summary.core import celery_worker as worker  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        worker,
+        "settings",
+        worker.settings.model_copy(
+            update={
+                "personal_memory_enabled": True,
+                "meeting_memory_tenant_id": "team-a",
+            }
+        ),
+    )
+    observation = Mock()
+    monkeypatch.setattr(worker, "LLMObservability", Mock(return_value=observation))
+    monkeypatch.setattr(worker, "LLMService", Mock())
+    memory_class = Mock()
+    memory_class.return_value.ingest.side_effect = [
+        RuntimeError("temporary failure"),
+        {"status": "needs_retry", "records": 0},
+        {"status": "completed", "records": 1},
+    ]
+    monkeypatch.setattr(worker, "PersonalMemory", memory_class)
+    mail = Mock()
+    monkeypatch.setattr(worker, "send_meeting_documents", mail)
+    result = worker.update_personal_memory_task.apply(
+        args=["team-a", "text", "test-source", []]
+    )
+    assert result.get() == {"status": "completed", "records": 1}
+    assert memory_class.return_value.ingest.call_count == 3
+    mail.assert_not_called()
+
+
+def test_memory_retries_exhausted_are_failed_and_alerted(monkeypatch, caplog):
+    from summary.core import celery_worker as worker  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        worker,
+        "settings",
+        worker.settings.model_copy(
+            update={
+                "personal_memory_enabled": True,
+                "meeting_memory_tenant_id": "team-a",
+            }
+        ),
+    )
+    monkeypatch.setattr(worker, "LLMObservability", Mock())
+    monkeypatch.setattr(
+        worker, "LLMService", Mock(side_effect=RuntimeError("unavailable"))
+    )
+    mail = Mock()
+    monkeypatch.setattr(worker, "send_meeting_documents", mail)
+    result = worker.update_personal_memory_task.apply(
+        args=["team-a", "text", "test-source", []]
+    )
+    assert result.failed()
+    assert "retries exhausted" in caplog.text
+    mail.assert_not_called()
+
+
 def test_explicit_completion_links_existing_task(memory):
     ingest(memory)
     item = memory.items()[0]
@@ -96,11 +162,23 @@ def test_uncertain_completion_requires_confirmation(memory, line):
     assert memory.items()[0]["status"] == "needs_confirmation"
 
 
-def test_same_name_accounts_never_merge(memory):
+def test_same_name_accounts_share_memory(memory):
     memory.register([{"identity": "account-b", "name": "小王"}])
-    assert len(memory.people()) == 2
-    assert memory.resolve([], transcript()) == []
+    assert len(memory.people()) == 1
+    assert len(memory.resolve([], transcript())) == 1
     assert len(memory.resolve(ROSTER, transcript())) == 1
+
+
+def test_connection_sids_and_collector_are_not_personal_accounts(memory):
+    memory.register(
+        [
+            {"participantId": "PA_connection", "name": "临时连接"},
+            {"identity": "PA_another", "name": "连接编号误用"},
+            {"identity": "metadata-collector-test", "name": "collector"},
+            {"identity": "bot-account", "name": "metadata-collector-test"},
+        ]
+    )
+    assert len(memory.people()) == 1
 
 
 def test_alias_and_account_mapping_is_explicit(memory):
@@ -129,11 +207,18 @@ def test_quote_without_owner_is_unassigned(memory):
     assert memory.items()[0]["person"] == ""
 
 
-@pytest.mark.parametrize("quote", ["捏造的证据", "我负责整理设备说明，周五交付。"])
-def test_fabricated_or_partial_quote_rejected_atomically(memory, quote):
-    with pytest.raises(ValueError):
-        ingest(memory, [proposal(memory), proposal(memory, quote=quote)])
-    assert not memory.items()
+@pytest.mark.parametrize(
+    "quote",
+    [
+        "捏造的证据",
+        "我负责整理设备说明，周五交付。",
+        "[00:01:00] 小王：我负责整理设备说明，周五交付。",
+    ],
+)
+def test_bad_quote_does_not_discard_valid_memory(memory, quote):
+    ingest(memory, [proposal(memory), proposal(memory, quote=quote)])
+    assert len(memory.items()) == 1
+    assert memory.items()[0]["quote"] == LINE
 
 
 def test_future_same_day_and_self_excluded(memory):

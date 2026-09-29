@@ -107,7 +107,9 @@ if settings.sentry_dsn and settings.sentry_is_enabled:
 file_service = FileService()
 
 
-def _request_transcription(audio_file, language: str, read_timeout: int) -> Transcription:
+def _request_transcription(
+    audio_file, language: str, read_timeout: int
+) -> Transcription:
     """Send one audio file to the configured OpenAI-compatible ASR endpoint."""
     url = urljoin(settings.whisperx_base_url.rstrip("/") + "/", "audio/transcriptions")
     transcription_data = {
@@ -117,9 +119,7 @@ def _request_transcription(audio_file, language: str, read_timeout: int) -> Tran
         "response_format": settings.whisperx_response_format,
     }
     if settings.whisperx_max_completion_tokens:
-        transcription_data["max_new_tokens"] = (
-            settings.whisperx_max_completion_tokens
-        )
+        transcription_data["max_new_tokens"] = settings.whisperx_max_completion_tokens
 
     res = requests.post(
         url,
@@ -136,7 +136,9 @@ def _request_transcription(audio_file, language: str, read_timeout: int) -> Tran
     res.raise_for_status()
     data: dict[str, Any] = res.json()
     data.pop("usage", None)
-    return Transcription.model_validate({"text": "", **data}, extra="allow", strict=False)
+    return Transcription.model_validate(
+        {"text": "", **data}, extra="allow", strict=False
+    )
 
 
 def transcribe_audio(
@@ -202,7 +204,9 @@ def transcribe_audio(
                         extract_chunk(Path(audio_file.name), path, start, end)
                         try:
                             with path.open("rb") as chunk_file:
-                                chunk = _request_transcription(chunk_file, language, 60 * 60)
+                                chunk = _request_transcription(
+                                    chunk_file, language, 60 * 60
+                                )
                         finally:
                             path.unlink(missing_ok=True)
 
@@ -229,8 +233,12 @@ def transcribe_audio(
                 already_mapped = True
 
             transcription_duration = round(time.time() - started, 2)
-            metadata_manager.track(task_id, {"transcription_time": transcription_duration})
-            logger.info("Transcription received in %.2f seconds", transcription_duration)
+            metadata_manager.track(
+                task_id, {"transcription_time": transcription_duration}
+            )
+            logger.info(
+                "Transcription received in %.2f seconds", transcription_duration
+            )
 
     except FileServiceException as e:
         # For v2 pipeline we want failures not silent errors like this
@@ -374,7 +382,9 @@ def format_actions(llm_output: dict, participants: list[str] | None = None) -> s
         lines.append("| - | 本次未识别到明确分配的待办 | - | - |")
     if pending:
         lines.extend(["", "## 负责人待确认", ""])
-        lines.extend(f"- {title}（时间要求：{due_date}）" for title, due_date in pending)
+        lines.extend(
+            f"- {title}（时间要求：{due_date}）" for title, due_date in pending
+        )
     return "\n".join(lines)
 
 
@@ -438,7 +448,11 @@ def _summarize_with_evidence(transcript, llm_service, audit_callback):
 
 
 def summarize_transcription_internals(
-    *, distinct_id: str, transcript: str, session_id: str, audit_callback=None,
+    *,
+    distinct_id: str,
+    transcript: str,
+    session_id: str,
+    audit_callback=None,
     history_context: str = "",
 ) -> str:
     """Generate a summary from the provided transcription text.
@@ -474,15 +488,11 @@ def summarize_transcription_internals(
 
     if settings.summary_evidence_enabled:
         try:
-            return _summarize_with_evidence(
-                transcript, llm_service, audit_callback
-            )
+            return _summarize_with_evidence(transcript, llm_service, audit_callback)
         finally:
             llm_observability.flush()
 
-    transcript_heading = re.search(
-        r"^## 逐字转录\s*$", transcript, flags=re.MULTILINE
-    )
+    transcript_heading = re.search(r"^## 逐字转录\s*$", transcript, flags=re.MULTILINE)
     if transcript_heading:
         meeting_context = transcript[: transcript_heading.start()].strip()
         transcript_body = transcript[transcript_heading.end() :].strip()
@@ -564,7 +574,10 @@ def summarize_transcription_internals(
     # A validation error follows the existing task failure/retry path.
     try:
         summary = ensure_deliverable(
-            summary, transcript, history_context, llm_service.call,
+            summary,
+            transcript,
+            history_context,
+            llm_service.call,
             PROMPT_SYSTEM_FINAL_SUMMARY,
         )
     except SummaryReviewRequired:
@@ -628,8 +641,16 @@ def enqueue_personal_memory(tenant, transcript, source, participants):
         logger.warning("Personal memory enqueue failed; meeting delivery unaffected")
 
 
-@celery.task(queue=settings.summarize_queue_v2)
-def update_personal_memory_task(tenant, transcript, source, participants):
+@celery.task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=3,
+    queue=settings.summarize_queue_v2,
+)
+def update_personal_memory_task(self, tenant, transcript, source, participants):
     """Extract independently after delivery; never enqueue summary or email jobs."""
     if not settings.personal_memory_enabled or not allowed(settings, tenant):
         return {"status": "disabled"}
@@ -640,10 +661,19 @@ def update_personal_memory_task(tenant, transcript, source, participants):
         memory = PersonalMemory(
             settings.meeting_memory_state_file, tenant, settings.document_timezone
         )
-        return memory.ingest(transcript, source, participants, llm.call)
+        result = memory.ingest(transcript, source, participants, llm.call)
+        if result.get("status") == "needs_retry":
+            raise LLMException("No usable memory evidence; retry extraction")
+        return result
     except Exception:
-        logger.warning("Personal memory update failed; retry memory only, not delivery")
-        return {"status": "failed"}
+        if self.request.retries >= self.max_retries:
+            logger.critical(
+                "Personal memory retries exhausted | task=%s source=%s; "
+                "meeting email is unaffected",
+                self.request.id,
+                source,
+            )
+        raise
     finally:
         if observation:
             observation.flush()
@@ -769,9 +799,7 @@ def process_audio_transcribe_v2_task(
             recording_metadata=payload.metadata,
             participant_metadata=participant_metadata,
         )
-        transcription_res = WhisperXResponse(
-            **raw_transcription.model_dump()
-        )
+        transcription_res = WhisperXResponse(**raw_transcription.model_dump())
     except TranscribeError as e:
         failure_payload = TranscribeWebhookFailurePayload(
             job_id=job_id,
@@ -847,7 +875,10 @@ def process_audio_transcribe_v2_task(
                         ),
                     ),
                     content=content,
-                    participants=(participant_metadata or {}).get("participants", []),
+                    # Collector participantId is a connection SID, not an account.
+                    participants=(
+                        payload.metadata.participants if payload.metadata else []
+                    ),
                 ).model_dump()
             ],
         )
@@ -944,10 +975,17 @@ def summarize_v2_task(
         recipients.append(payload.user_email)
     if payload.push_to_docs_config:
         recipients.append(payload.push_to_docs_config.user_email)
-    history = optional_history(
-        settings, payload.tenant_id, recipients, payload.content,
-        str(payload.media_recording_id or self.request.id),
-    ) if not settings.summary_evidence_enabled else ""
+    history = (
+        optional_history(
+            settings,
+            payload.tenant_id,
+            recipients,
+            payload.content,
+            str(payload.media_recording_id or self.request.id),
+        )
+        if not settings.summary_evidence_enabled
+        else ""
+    )
     source = str(
         payload.media_recording_id
         or hashlib.sha256(payload.content.encode()).hexdigest()
@@ -1044,7 +1082,7 @@ def handle_summarize_v2_failed(  # noqa: PLR0917
 
     Tracks the failure event in analytics and sends a failure webhook to the client.
     """
-    logger.warn(
+    logger.critical(
         "Summary task %s failed, no more retries left, sending failure webhook.",
         task_id,
     )

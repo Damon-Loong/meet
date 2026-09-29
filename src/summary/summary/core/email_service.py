@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from summary.core.config import get_settings
+from summary.core.meeting_memory import source_date
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -48,6 +49,16 @@ def _safe_filename(value: str) -> str:
     return value[:80] or "会议"
 
 
+def _attachment_prefix(transcript: str, fallback: str) -> str:
+    """Prefer the original meeting name over test/delivery title decorations."""
+    heading = re.search(r"^#\s+(.+)$", transcript, re.M)
+    name = heading[1] if heading else fallback
+    name = re.sub(r"^(?:【测试】|\[测试\])\s*", "", name)
+    name = re.split(r"[｜|](?:会议转录|会议总结|会议纪要|新版纪要验收)", name)[0]
+    name = re.sub(r"的长期会议$", "的会议", name.strip())
+    return _safe_filename(name)
+
+
 def send_meeting_documents(
     *,
     recipients: list[str],
@@ -68,10 +79,10 @@ def send_meeting_documents(
     meeting_name = _meeting_name(title, summary)
     now = datetime.now(ZoneInfo(settings.document_timezone))
     generated_at = now.strftime("%Y-%m-%d %H:%M")
-    date_suffix = now.strftime("%Y%m%d")
-    filename_prefix = _safe_filename(meeting_name)
-    transcript_filename = f"{filename_prefix}_会议转录_{date_suffix}.md"
-    summary_filename = f"{filename_prefix}_会议总结_{date_suffix}.md"
+    date_suffix = source_date(transcript).replace("-", "") or "日期未记录"
+    filename_prefix = _attachment_prefix(transcript, meeting_name)
+    transcript_filename = f"{filename_prefix}｜会议转录_{date_suffix}.md"
+    summary_filename = f"{filename_prefix}｜会议总结_{date_suffix}.md"
 
     media_links: list[tuple[str, str]] = []
     if media_recording_id:
@@ -176,6 +187,9 @@ def send_meeting_documents(
         filename=summary_filename,
     )
 
+    # Preserve the existing body transfer encoding, but avoid RFC 2231 filename
+    # continuations in serialized headers. Stay within the RFC 5322 hard limit.
+    message.policy = message.policy.clone(max_line_length=998)
     smtp_class = smtplib.SMTP_SSL if settings.email_use_ssl else smtplib.SMTP
     with smtp_class(settings.email_host, settings.email_port, timeout=30) as smtp:
         if settings.email_use_tls and not settings.email_use_ssl:
