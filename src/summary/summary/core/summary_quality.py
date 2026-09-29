@@ -1,6 +1,7 @@
-"""Bounded pre-delivery review; a failed review must never become a sent summary."""
+"""Bounded quality checks: advisory review must not prevent normal delivery."""
 
 import json
+import logging
 import re
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -12,6 +13,8 @@ from summary.core.summary_document import (
     render_concise_summary,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class Review(BaseModel):
     """Require an explicit verdict, not an optimistic interpretation of free text."""
@@ -19,6 +22,7 @@ class Review(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     approved: bool
     issues: list[str]
+    critical_issues: list[str]
 
 
 REVIEW_PROMPT = """你是会议纪要发送前校对员。原始转录才是事实依据，历史仅作背景。
@@ -29,8 +33,12 @@ REVIEW_PROMPT = """你是会议纪要发送前校对员。原始转录才是事�
 4. 今天讨论、当务之急不等于明确的当天完成期限；保留真实时间性质。
 5. 任务归属须有原文依据，不按职位猜测；明显姓名错字不作为问题。
 6. 历史不能代替本次结论；后文否定或修改优先。关键议题不能无故删掉。
-返回approved和issues。只有逐项均无实质问题才approved=true且issues=[]。
-发现问题时用简短文字指出字段和原文依据，不纠缠纯文风或名字拼写。
+返回approved、issues和critical_issues。issues仅记录可改进的小问题，不阻止发送。
+critical_issues只记录有明确原文依据的重大错误：核心决策与原文相反、重要金额或资源分配错误、
+将未批准的重大支出写成已批准、主要任务分配给错误的人、大段不可理解或遗漏核心结论。
+每条重大错误必须写明草稿字段、草稿说法和原文依据；没有明确证据不要判重大错误。
+轻微措辞、姓名错字、时间描述的歧义、风格差异不属于重大错误。
+approved表示无需改进，但approved=false本身不意味着不能发送。
 """
 
 
@@ -54,10 +62,11 @@ def local_issues(content):
 
 
 def ensure_deliverable(raw, transcript, history, call, system_prompt, *, audit=None):  # noqa: PLR0913
-    """Review, repair at most once, re-review; never return an unapproved draft."""
+    """Repair once; fall back to a usable draft for advisory/reviewer failures."""
     source = json.dumps(
         {"本次完整转录": transcript, "历史背景": history}, ensure_ascii=False
     )
+    fallback = None
     for attempt in range(2):
         try:
             content = ConciseSummary.model_validate_json(raw)
@@ -66,6 +75,7 @@ def ensure_deliverable(raw, transcript, history, call, system_prompt, *, audit=N
         except (ValueError, ValidationError):
             content, rendered = None, ""
             issues = ["草稿结构或必填正文无效"]
+        blocking = list(issues)
         if content is not None:
             try:
                 review = Review.model_validate_json(
@@ -84,15 +94,32 @@ def ensure_deliverable(raw, transcript, history, call, system_prompt, *, audit=N
                     )
                 )
                 issues.extend(review.issues)
-                if not review.approved and not review.issues:
-                    issues.append("审核未明确通过")
+                issues.extend(review.critical_issues)
+                blocking.extend(review.critical_issues)
             except Exception:
-                # A broken/unavailable reviewer is not permission to send.
-                raise SummaryReviewRequired() from None
+                logger.warning(
+                    "Advisory summary review unavailable; using local checks"
+                )
+                # Never erase a previously observed major factual error merely
+                # because the repair's reviewer is unavailable.
+                if attempt and fallback is None:
+                    blocking.append("此前严重问题尚未复核")
+        if not blocking:
+            fallback = rendered
         if audit:
-            audit({"attempt": attempt, "issues": issues, "draft": raw})
-        if not issues:
+            audit(
+                {
+                    "attempt": attempt,
+                    "issues": issues,
+                    "blocking": blocking,
+                    "draft": raw,
+                }
+            )
+        if not issues and not blocking:
             return rendered
+        if attempt == 1 and fallback is not None:
+            logger.warning("Delivering usable summary after bounded advisory repair")
+            return fallback
         if attempt == 0:
             try:
                 raw = call(
@@ -106,5 +133,10 @@ def ensure_deliverable(raw, transcript, history, call, system_prompt, *, audit=N
                     response_format=SUMMARY_RESPONSE_FORMAT,
                 )
             except Exception:
+                if fallback is not None:
+                    logger.warning(
+                        "Advisory repair unavailable; delivering usable original"
+                    )
+                    return fallback
                 raise SummaryReviewRequired() from None
     raise SummaryReviewRequired()

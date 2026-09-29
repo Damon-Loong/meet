@@ -5,8 +5,11 @@ evidence-review path is opt-in and is not required for normal summaries.
 
 Normal summaries now have a mandatory bounded delivery gate: validate structure
 and obvious incomplete fields, review against the complete current transcript,
-repair at most once, then review again. An invalid/unavailable review or remaining
-issue raises SummaryReviewRequired before summary storage/email. This exception
+repair at most once, then review again. Minor wording/deadline ambiguities do not
+block delivery. Reviewer outages or malformed verdicts alone do not block a locally
+valid original. If an advisory repair fails, retain the usable original. Only
+unusable structure/content or unresolved explicit major factual errors raise
+SummaryReviewRequired before summary storage/email. This exception
 is excluded from whole-task automatic retry; the existing failure webhook and
 sanitized log report the failure. No separate user-facing failure email or review
 dashboard is implemented. Review still uses a fallible model, not proof of factual
