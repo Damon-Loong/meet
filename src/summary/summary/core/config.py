@@ -105,6 +105,7 @@ class Settings(BaseSettings):
     # Separate opt-ins; require a persistent state volume and explicit tenant.
     meeting_memory_read_enabled: bool = False
     meeting_memory_write_enabled: bool = False
+    personal_memory_enabled: bool = False
     meeting_memory_tenant_id: str = ""
     meeting_memory_config_file: str = "/run/secrets/meet-knowledge.json"
     meeting_memory_state_file: str = "/var/lib/meet-memory/state.sqlite3"

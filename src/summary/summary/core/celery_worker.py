@@ -2,6 +2,7 @@
 
 # ruff: noqa: PLR0913
 
+import hashlib
 import re
 import tempfile
 import time
@@ -48,6 +49,7 @@ from summary.core.models import (
     TranscribeTaskJob,
 )
 from summary.core.meeting_memory import allowed, open_memory, optional_history
+from summary.core.personal_memory import PersonalMemory, personal_context
 from summary.core.summary_quality import ensure_deliverable
 from summary.core.prompt import (
     PROMPT_SYSTEM_FINAL_SUMMARY,
@@ -614,6 +616,39 @@ def enqueue_meeting_archive(tenant_id, transcript, source):
         logger.warning("Meeting archive enqueue failed; original transcript retained")
 
 
+def enqueue_personal_memory(tenant, transcript, source, participants):
+    """Do not let personal-memory queue failures retry a sent meeting email."""
+    if not settings.personal_memory_enabled or not allowed(settings, tenant):
+        return
+    try:
+        update_personal_memory_task.apply_async(
+            args=[tenant, transcript, source, participants]
+        )
+    except Exception:
+        logger.warning("Personal memory enqueue failed; meeting delivery unaffected")
+
+
+@celery.task(queue=settings.summarize_queue_v2)
+def update_personal_memory_task(tenant, transcript, source, participants):
+    """Extract independently after delivery; never enqueue summary or email jobs."""
+    if not settings.personal_memory_enabled or not allowed(settings, tenant):
+        return {"status": "disabled"}
+    observation = None
+    try:
+        observation = LLMObservability(session_id=source, user_id="personal-memory")
+        llm = LLMService(observation)
+        memory = PersonalMemory(
+            settings.meeting_memory_state_file, tenant, settings.document_timezone
+        )
+        return memory.ingest(transcript, source, participants, llm.call)
+    except Exception:
+        logger.warning("Personal memory update failed; retry memory only, not delivery")
+        return {"status": "failed"}
+    finally:
+        if observation:
+            observation.flush()
+
+
 @celery.task(queue=settings.summarize_queue_v2)
 def archive_meeting_task(tenant_id, transcript, source):
     """Submit indexing separately from mail; never replay a summary on failure."""
@@ -812,6 +847,7 @@ def process_audio_transcribe_v2_task(
                         ),
                     ),
                     content=content,
+                    participants=(participant_metadata or {}).get("participants", []),
                 ).model_dump()
             ],
         )
@@ -912,6 +948,14 @@ def summarize_v2_task(
         settings, payload.tenant_id, recipients, payload.content,
         str(payload.media_recording_id or self.request.id),
     ) if not settings.summary_evidence_enabled else ""
+    source = str(
+        payload.media_recording_id
+        or hashlib.sha256(payload.content.encode()).hexdigest()
+    )
+    if not settings.summary_evidence_enabled:
+        history += personal_context(
+            settings, payload.tenant_id, payload.participants, payload.content, source
+        )
     summary = summarize_transcription_internals(
         distinct_id=payload.user_sub,
         transcript=payload.content,
@@ -964,6 +1008,10 @@ def summarize_v2_task(
         args=[success_payload.model_dump(), payload.tenant_id]
     )
     metadata_manager.capture(job_id, settings.posthog_summary_success)
+
+    enqueue_personal_memory(
+        payload.tenant_id, payload.content, source, payload.participants
+    )
 
     return success_payload.model_dump()
 

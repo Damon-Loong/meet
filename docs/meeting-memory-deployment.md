@@ -1,5 +1,9 @@
 # Meeting memory integration (disabled by default)
 
+The optional, not-yet-deployed person-indexed layer is documented in
+[personal-memory.md](personal-memory.md). It has a separate default-off switch,
+administrative correction UI and additive persistent tables.
+
 Concise minutes use deterministic Markdown rendering. The experimental strict
 evidence-review path is opt-in and is not required for normal summaries.
 
