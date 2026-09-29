@@ -48,6 +48,7 @@ from summary.core.models import (
     TranscribeTaskJob,
 )
 from summary.core.meeting_memory import allowed, open_memory, optional_history
+from summary.core.summary_quality import ensure_deliverable
 from summary.core.prompt import (
     PROMPT_SYSTEM_FINAL_SUMMARY,
     PROMPT_SYSTEM_SEGMENT_EXTRACT,
@@ -64,8 +65,6 @@ from summary.core.shared_models import (
 )
 from summary.core.summary_document import (
     SUMMARY_RESPONSE_FORMAT,
-    ConciseSummary,
-    render_concise_summary,
 )
 from summary.core.transcript_formatter import TranscriptFormatter
 from summary.core.user_assign import (
@@ -561,12 +560,18 @@ def summarize_transcription_internals(
     )
     # Do not email malformed JSON or fall back to the old long-form layout.
     # A validation error follows the existing task failure/retry path.
-    summary = render_concise_summary(
-        ConciseSummary.model_validate_json(summary), transcript
-    )
+    try:
+        summary = ensure_deliverable(
+            summary, transcript, history_context, llm_service.call,
+            PROMPT_SYSTEM_FINAL_SUMMARY,
+        )
+    except SummaryReviewRequired:
+        logger.error("Summary quality gate failed; delivery blocked, review required")
+        raise
+    finally:
+        llm_observability.flush()
     logger.info("Final summary generated")
 
-    llm_observability.flush()
     logger.debug("LLM observability flushed")
 
     return summary

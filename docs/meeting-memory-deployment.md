@@ -3,6 +3,15 @@
 Concise minutes use deterministic Markdown rendering. The experimental strict
 evidence-review path is opt-in and is not required for normal summaries.
 
+Normal summaries now have a mandatory bounded delivery gate: validate structure
+and obvious incomplete fields, review against the complete current transcript,
+repair at most once, then review again. An invalid/unavailable review or remaining
+issue raises SummaryReviewRequired before summary storage/email. This exception
+is excluded from whole-task automatic retry; the existing failure webhook and
+sanitized log report the failure. No separate user-facing failure email or review
+dashboard is implemented. Review still uses a fallible model, not proof of factual
+correctness; budget for up to three additional model calls on a failed first review.
+
 Memory writes run as separate Celery tasks after transcript storage. Remote
 indexing status is checked at most 20 times; polling never resubmits a summary or
 sends mail. Archive failures require archive-only recovery, not meeting replay.
