@@ -3,7 +3,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from summary.core.config import AuthorizedTenant, SettingsDeps
 from summary.core.meeting_memory import allowed
@@ -35,6 +35,7 @@ class PersonInput(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     aliases: list[str] = Field(default_factory=list, max_length=30)
     account: str = Field(default="", max_length=200)
+    email: EmailStr | None = None
     person: str = Field(default="", max_length=64)
 
 
@@ -57,6 +58,20 @@ class Merge(BaseModel):
     source: str = Field(min_length=1, max_length=64)
     target: str = Field(min_length=1, max_length=64)
     reason: str = Field(min_length=1, max_length=500)
+
+
+class SelfTasks(BaseModel):
+    """Server-to-server lookup; the email comes from the authenticated AfB account."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    email: EmailStr
+
+
+class SelfTaskStatus(SelfTasks):
+    """A completion toggle guarded by the latest visible task revision."""
+
+    revision: int = Field(gt=0)
+    completed: bool
 
 
 @router.post("/people/merge")
@@ -87,6 +102,26 @@ def identity_history(person: str, memory: Store):
 def snapshot(memory: Store):
     """List team profiles and current records, including unresolved proposals."""
     return {"people": memory.people(), "items": memory.items()}
+
+
+@router.post("/self/tasks")
+def self_tasks(body: SelfTasks, memory: Store):
+    """Return tasks owned by the exact normalized participant email only."""
+    return {"items": memory.task_items_by_email(str(body.email))}
+
+
+@router.post("/self/tasks/{item}/status")
+def self_task_status(item: str, body: SelfTaskStatus, memory: Store):
+    """Complete or reopen only a task owned by this email, with revision checks."""
+    try:
+        task = memory.set_task_completed_by_email(
+            str(body.email), item, body.revision, body.completed
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "Unknown task for this person") from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {"item": task}
 
 
 @router.post("/people")

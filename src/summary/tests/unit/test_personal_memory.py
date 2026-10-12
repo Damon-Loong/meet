@@ -169,6 +169,58 @@ def test_same_name_accounts_share_memory(memory):
     assert len(memory.resolve(ROSTER, transcript())) == 1
 
 
+def test_conflicting_email_keeps_existing_people_separate(memory):
+    roster = [
+        {"identity": "account-a", "name": "小王", "email": "wang@example.com"},
+        {"identity": "account-b", "name": "小李", "email": "li@example.com"},
+    ]
+    memory.register(roster)
+    before = memory.people()
+    memory.register([{**roster[0], "email": "li@example.com"}])
+    assert memory.people() == before
+
+
+def test_exact_email_returns_only_that_persons_tasks(memory):
+    memory.register(
+        [{"identity": "account-a", "name": "小王", "email": " Wang@Example.com "}]
+    )
+    ingest(memory)
+    memory.register(
+        [{"identity": "account-b", "name": "小李", "email": "li@example.com"}]
+    )
+    other = next(person for person in memory.people() if person["name"] == "小李")
+    other_line = "- **[00:02:00] 小李：** 我负责另一个任务。"
+    ingest(
+        memory,
+        [proposal(memory, person_id=other["id"], text="另一个任务", quote=other_line)],
+        "two",
+        transcript(other_line, "2026-09-21", "小李"),
+    )
+    own = memory.task_items_by_email("wang@example.com")
+    assert [item["text"] for item in own] == ["整理设备说明"]
+    assert memory.task_items_by_email("unknown@example.com") == []
+
+
+def test_email_owner_can_complete_and_reopen_only_own_task(memory):
+    memory.register(
+        [{"identity": "account-a", "name": "小王", "email": "wang@example.com"}]
+    )
+    ingest(memory)
+    item = memory.task_items_by_email("wang@example.com")[0]
+    completed = memory.set_task_completed_by_email(
+        "wang@example.com", item["item"], item["seq"], True
+    )
+    assert completed["status"] == "completed"
+    with pytest.raises(KeyError):
+        memory.set_task_completed_by_email(
+            "other@example.com", item["item"], completed["seq"], False
+        )
+    reopened = memory.set_task_completed_by_email(
+        "wang@example.com", item["item"], completed["seq"], False
+    )
+    assert reopened["status"] == "pending"
+
+
 def test_connection_sids_and_collector_are_not_personal_accounts(memory):
     memory.register(
         [

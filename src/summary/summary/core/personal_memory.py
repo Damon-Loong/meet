@@ -23,6 +23,14 @@ Status = Literal[
 ]
 
 
+def normalized_email(value):
+    """Normalize a participant email for exact matching; reject non-email labels."""
+    email = str(value or "").strip().lower()
+    if len(email) > 254 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+        return ""
+    return email
+
+
 def meeting_time(transcript, *, for_context=False):
     """Use start timestamps so earlier meetings on the same day can be recalled."""
     date = source_date(transcript)
@@ -91,6 +99,9 @@ class PersonalMemory:
                 CREATE TABLE IF NOT EXISTS pm_accounts(
                     tenant TEXT, account TEXT, person TEXT,
                     PRIMARY KEY(tenant,account));
+                CREATE TABLE IF NOT EXISTS pm_emails(
+                    tenant TEXT, email TEXT, person TEXT,
+                    PRIMARY KEY(tenant,email));
                 CREATE TABLE IF NOT EXISTS pm_aliases(
                     tenant TEXT, alias TEXT, person TEXT,
                     PRIMARY KEY(tenant,alias,person));
@@ -150,6 +161,14 @@ class PersonalMemory:
                         (self.tenant, row["id"]),
                     )
                 ]
+                person["emails"] = [
+                    r[0]
+                    for r in db.execute(
+                        "SELECT email FROM pm_emails WHERE tenant=? AND person=? "
+                        "ORDER BY email",
+                        (self.tenant, row["id"]),
+                    )
+                ]
                 result.append(person)
             return result
 
@@ -160,6 +179,7 @@ class PersonalMemory:
             for participant in participants[:200]:
                 account = str(participant.get("identity") or "").strip()[:200]
                 name = str(participant.get("name") or "").strip()[:100]
+                email = normalized_email(participant.get("email"))
                 if (
                     not account
                     or not name
@@ -175,12 +195,28 @@ class PersonalMemory:
                     "SELECT person FROM pm_accounts WHERE tenant=? AND account=?",
                     (self.tenant, account),
                 ).fetchone()
+                emailed = (
+                    db.execute(
+                        "SELECT person FROM pm_emails WHERE tenant=? AND email=?",
+                        (self.tenant, email),
+                    ).fetchone()
+                    if email
+                    else None
+                )
                 named = db.execute(
                     "SELECT id FROM pm_people WHERE tenant=? AND name=? "
                     "ORDER BY rowid LIMIT 1",
                     (self.tenant, name),
                 ).fetchone()
-                person = existing[0] if existing else (named[0] if named else person)
+                if existing and emailed and existing[0] != emailed[0]:
+                    # Preserve established identities without interrupting meetings.
+                    logger.warning("Ignoring conflicting participant email mapping")
+                    email, emailed = "", None
+                person = (
+                    emailed[0]
+                    if emailed
+                    else (existing[0] if existing else (named[0] if named else person))
+                )
                 db.execute(
                     "INSERT OR IGNORE INTO pm_people VALUES (?,?,?)",
                     (self.tenant, person, name),
@@ -193,10 +229,16 @@ class PersonalMemory:
                     "INSERT OR IGNORE INTO pm_aliases VALUES (?,?,?)",
                     (self.tenant, name, person),
                 )
+                if email:
+                    db.execute(
+                        "INSERT OR IGNORE INTO pm_emails VALUES (?,?,?)",
+                        (self.tenant, email, person),
+                    )
 
-    def add_person(self, name, aliases, account="", person=""):
+    def add_person(self, name, aliases, account="", person="", email=""):
         """Explicit administrative identity correction; never steal an account."""
         person = person or uuid4().hex
+        email = normalized_email(email) if email else ""
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             before = [
@@ -213,6 +255,13 @@ class PersonalMemory:
                 ).fetchone()
                 if existing and existing[0] != person:
                     raise ValueError("Account already belongs to another profile")
+            if email:
+                existing_email = db.execute(
+                    "SELECT person FROM pm_emails WHERE tenant=? AND email=?",
+                    (self.tenant, email),
+                ).fetchone()
+                if existing_email and existing_email[0] != person:
+                    raise ValueError("Email already belongs to another profile")
             db.execute(
                 "INSERT INTO pm_people VALUES (?,?,?) ON CONFLICT(tenant,id) "
                 "DO UPDATE SET name=excluded.name",
@@ -233,6 +282,11 @@ class PersonalMemory:
                     "INSERT OR IGNORE INTO pm_accounts VALUES (?,?,?)",
                     (self.tenant, account, person),
                 )
+            if email:
+                db.execute(
+                    "INSERT OR IGNORE INTO pm_emails VALUES (?,?,?)",
+                    (self.tenant, email, person),
+                )
             db.execute(
                 "INSERT INTO pm_identity_events(tenant,person,detail) VALUES (?,?,?)",
                 (
@@ -245,6 +299,7 @@ class PersonalMemory:
                             "name": name,
                             "aliases": aliases,
                             "account": account,
+                            "email": email,
                         },
                         ensure_ascii=False,
                     ),
@@ -283,6 +338,14 @@ class PersonalMemory:
             db.execute(
                 "UPDATE pm_accounts SET person=? WHERE tenant=? AND person=?",
                 (target, self.tenant, source),
+            )
+            db.execute(
+                "UPDATE OR IGNORE pm_emails SET person=? WHERE tenant=? AND person=?",
+                (target, self.tenant, source),
+            )
+            db.execute(
+                "DELETE FROM pm_emails WHERE tenant=? AND person=?",
+                (self.tenant, source),
             )
             db.execute(
                 "INSERT OR IGNORE INTO pm_aliases SELECT tenant,alias,? "
@@ -364,6 +427,48 @@ class PersonalMemory:
                 event["deadline_date"] = prior["deadline_date"]
             current[event["item"]] = event
         return list(current.values())
+
+    def task_items_by_email(self, email):
+        """Return only tasks assigned to the person mapped to this exact email."""
+        email = normalized_email(email)
+        if not email:
+            raise ValueError("Invalid email")
+        with self.db() as db:
+            row = db.execute(
+                "SELECT person FROM pm_emails WHERE tenant=? AND email=?",
+                (self.tenant, email),
+            ).fetchone()
+        if not row:
+            return []
+        return [
+            item
+            for item in self.items()
+            if item["person"] == row[0] and item["kind"] == "task"
+        ]
+
+    def set_task_completed_by_email(self, email, item, revision, completed):
+        """Append a status change only when the email owns the current task."""
+        tasks = {task["item"]: task for task in self.task_items_by_email(email)}
+        current = tasks.get(item)
+        if not current:
+            raise KeyError("Unknown task for this person")
+        if current["seq"] != revision:
+            raise ValueError("Record changed; reload before updating")
+        status = "completed" if completed else "pending"
+        self.correct(
+            item,
+            revision=revision,
+            person=current["person"],
+            text=current["text"],
+            status=status,
+            deadline=current["deadline"],
+            reason=("本人在小程序确认完成" if completed else "本人在小程序撤销完成"),
+        )
+        return next(
+            task
+            for task in self.task_items_by_email(email)
+            if task["item"] == item
+        )
 
     def context(self, participants, transcript, source):
         """Return bounded, sourced memory only for resolved attendees and past dates."""

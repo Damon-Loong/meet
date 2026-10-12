@@ -38,6 +38,15 @@ Aliases can be corrected; two profiles can be explicitly merged, preserving item
 history. Concurrent stale edits return HTTP 409. Human corrections take precedence;
 subsequent conflicting model proposals are separate review candidates.
 
+Participant emails are normalized to lowercase and mapped to the same person as
+their trusted meeting identity. The server-to-server endpoints
+`POST /api/v2/personal-memory/self/tasks` and
+`POST /api/v2/personal-memory/self/tasks/{item}/status` return or update only
+tasks owned by that exact email. They require the existing tenant bearer key;
+ordinary mini-program clients must never receive that key. Historical profiles
+created before email mapping can be given an email through the administrator
+people endpoint. An email already owned by another profile is rejected.
+
 Data endpoints under `/api/v2/personal-memory` are authenticated and enforce the
 configured tenant. The page holds a credential only in page memory, never browser
 storage. This is an **administrator-only** first version: do not distribute the

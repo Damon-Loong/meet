@@ -59,7 +59,12 @@ def test_create_correct_audit_and_stale_revision(setup):
     response = client.post(
         URL + "/people",
         headers=HEADERS,
-        json={"name": "小李", "aliases": ["李明"], "account": "account-1"},
+        json={
+            "name": "小李",
+            "aliases": ["李明"],
+            "account": "account-1",
+            "email": "li@example.com",
+        },
     )
     assert response.status_code == 200
     person = response.json()["id"]
@@ -97,6 +102,56 @@ def test_create_correct_audit_and_stale_revision(setup):
         ).status_code
         == 404
     )
+
+
+def test_self_tasks_are_scoped_by_exact_participant_email(setup):
+    client, memory, _ = setup
+    roster = [
+        {"identity": "account-a", "name": "小王", "email": "wang@example.com"},
+        {"identity": "account-b", "name": "小李", "email": "li@example.com"},
+    ]
+    memory.register(roster)
+    people = {person["name"]: person["id"] for person in memory.people()}
+    quotes = {
+        "小王": "- **[00:01:00] 小王：** 我整理说明。",
+        "小李": "- **[00:02:00] 小李：** 我检查清单。",
+    }
+    facts = [
+        {
+            "person_id": people[name], "item_id": "", "kind": "task",
+            "text": text, "status": "pending", "deadline": "", "quote": quotes[name],
+        }
+        for name, text in (("小王", "整理说明"), ("小李", "检查清单"))
+    ]
+    transcript = (
+        "| 会议开始 | 2026-09-20 10:00:00 |\n## 参会人员\n小王、小李\n"
+        "## 逐字转录\n" + "\n".join(quotes.values())
+    )
+    response = json.dumps({"facts": facts}, ensure_ascii=False)
+    memory.ingest(transcript, "meeting-one", roster, Mock(return_value=response))
+    url = URL + "/self/tasks"
+    response = client.post(url, headers=HEADERS, json={"email": "WANG@example.com"})
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert [item["text"] for item in items] == ["整理说明"]
+    item = items[0]
+    changed = client.post(
+        f"{url}/{item['item']}/status", headers=HEADERS,
+        json={"email": "wang@example.com", "revision": item["seq"], "completed": True},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["item"]["status"] == "completed"
+    forbidden = client.post(
+        f"{url}/{item['item']}/status", headers=HEADERS,
+        json={
+            "email": "li@example.com",
+            "revision": changed.json()["item"]["seq"],
+            "completed": False,
+        },
+    )
+    assert forbidden.status_code == 404
+    unauthenticated = client.post(url, json={"email": "wang@example.com"})
+    assert unauthenticated.status_code in {401, 403}
 
 
 def test_admin_page_contains_no_secrets_and_is_disabled_by_default(setup, monkeypatch):
