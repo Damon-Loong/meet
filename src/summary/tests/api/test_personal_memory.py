@@ -124,11 +124,11 @@ def test_self_tasks_are_scoped_by_exact_participant_email(setup):
         for name, text in (("小王", "整理说明"), ("小李", "检查清单"))
     ]
     transcript = (
-        "| 会议开始 | 2026-09-20 10:00:00 |\n## 参会人员\n小王、小李\n"
+        "| 会议开始 | 2026-10-12 10:00:00 |\n## 参会人员\n小王、小李\n"
         "## 逐字转录\n" + "\n".join(quotes.values())
     )
     response = json.dumps({"facts": facts}, ensure_ascii=False)
-    memory.ingest(transcript, "meeting-one", roster, Mock(return_value=response))
+    memory.ingest_summary("**小王**\n- [ ] 整理说明\n**小李**\n- [ ] 检查清单", transcript, "meeting-one", roster)
     url = URL + "/self/tasks"
     response = client.post(url, headers=HEADERS, json={"email": "WANG@example.com"})
     assert response.status_code == 200

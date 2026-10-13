@@ -87,10 +87,11 @@ text简短描述任务/职责，保留限制条件；保留完成情况与任务
 class PersonalMemory:
     """Store separate tenant keys in the existing persistent SQLite volume."""
 
-    def __init__(self, path, tenant, document_timezone="Asia/Shanghai"):
+    def __init__(self, path, tenant, document_timezone="Asia/Shanghai", reminder_start="2026-10-12"):
         """Initialize additive tables without touching the vector ledger."""
         self.path, self.tenant = str(path), tenant
         self.timezone = ZoneInfo(document_timezone)
+        self.reminder_start = reminder_start
         Path(path).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self.db() as db:
             db.executescript("""
@@ -112,6 +113,9 @@ class PersonalMemory:
                     origin TEXT, reason TEXT, created_at TEXT);
                 CREATE INDEX IF NOT EXISTS pm_events_tenant ON pm_events(tenant,item);
                 CREATE TABLE IF NOT EXISTS pm_sources(
+                    tenant TEXT, source TEXT, digest TEXT,
+                    PRIMARY KEY(tenant,source));
+                CREATE TABLE IF NOT EXISTS pm_summary_sources(
                     tenant TEXT, source TEXT, digest TEXT,
                     PRIMARY KEY(tenant,source));
                 CREATE TABLE IF NOT EXISTS pm_identity_events(
@@ -429,7 +433,7 @@ class PersonalMemory:
         return list(current.values())
 
     def task_items_by_email(self, email):
-        """Return only tasks assigned to the person mapped to this exact email."""
+        """Return tasks and responsibilities for this email, newest meeting first."""
         email = normalized_email(email)
         if not email:
             raise ValueError("Invalid email")
@@ -440,11 +444,18 @@ class PersonalMemory:
             ).fetchone()
         if not row:
             return []
-        return [
+        with self.db() as db:
+            imported = {r[0] for r in db.execute(
+                "SELECT DISTINCT item FROM pm_events WHERE tenant=? AND origin='summary' AND meeting_date>=?",
+                (self.tenant, self.reminder_start),
+            )}
+        return sorted([
             item
             for item in self.items()
-            if item["person"] == row[0] and item["kind"] == "task"
-        ]
+            if item["person"] == row[0]
+            and item["kind"] in ("task", "responsibility")
+            and (not self.reminder_start or item["item"] in imported)
+        ], key=lambda item: (item["meeting_date"] or "", item["seq"]), reverse=True)
 
     def set_task_completed_by_email(self, email, item, revision, completed):
         """Append a status change only when the email owns the current task."""
@@ -507,6 +518,72 @@ class PersonalMemory:
         if row and row[0] != digest:
             raise ValueError("Source changed; reconciliation required")
         return bool(row)
+
+    def ingest_summary(self, summary, transcript, source, participants):
+        """Import the delivered document's checklist, without a second model pass.
+
+        Existing sources are never rewritten automatically. Exact same-owner
+        duplicates reuse the task and preserve human completion/corrections.
+        """
+        date = meeting_time(transcript)
+        if not date or len(summary) > 100000:
+            return {"status": "needs_review", "reason": "date_or_size"}
+        if self.reminder_start and date[:10] < self.reminder_start:
+            return {"status": "skipped", "reason": "before_reminder_start"}
+        people = self.resolve(participants, transcript)
+        owner = None
+        entries = []
+        # Preserve wrapped checklist text instead of silently losing continuation lines.
+        lines = []
+        for line in summary.splitlines():
+            if line.startswith(("  ", "\t")) and line.strip() and lines and re.match(r"\s*-\s+\[[ xX]\]", lines[-1]) and not re.match(r"\s*(?:[-*]|#)", line):
+                lines[-1] += " " + line.strip()
+            else:
+                lines.append(line)
+        for line in lines:
+            heading = re.fullmatch(r"\s*(?:#{1,6}\s+)?\*\*(.+?)\*\*\s*", line)
+            if heading:
+                label = re.split(r"[｜|]", heading[1], maxsplit=1)[0].strip()
+                matches = [p for p in people if label == p["name"] or label in p["aliases"]]
+                owner = matches[0]["id"] if len(matches) == 1 else None
+                continue
+            checkbox = re.fullmatch(r"\s*-\s+\[([ xX])\]\s+(.+)", line)
+            if not checkbox:
+                continue
+            if not owner:
+                return {"status": "needs_review", "reason": "unresolved_checklist_owner"}
+            text = checkbox[2].strip()
+            timing = re.search(r"\s+\*\*(.+?)\*\*$", text)
+            deadline = timing[1] if timing else ""
+            text = text[:timing.start()].strip() if timing else text
+            text = text.replace("**", "")
+            kind = "responsibility" if re.search(r"持续|每日|每天|长期", deadline) else "task"
+            status = "completed" if checkbox[1].lower() == "x" else ("active" if kind == "responsibility" else "pending")
+            entries.append((owner, kind, text, status, deadline, line))
+        if not entries and "**待确认事项**" not in summary:
+            return {"status": "needs_review", "reason": "unsupported_summary_format"}
+        digest = hashlib.sha256(("delivered-summary-v1\n" + summary).encode()).hexdigest()
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            prior_source = db.execute("SELECT digest FROM pm_summary_sources WHERE tenant=? AND source=?", (self.tenant, source)).fetchone()
+            if prior_source:
+                return {"status": "already_processed"} if prior_source[0] == digest else {"status": "needs_review", "reason": "delivered_summary_changed"}
+            existing = [i for i in self.items() if not self.reminder_start or i["meeting_date"] >= self.reminder_start]
+            seen = set()
+            count = 0
+            for person, kind, text, status, deadline, quote in entries:
+                key = (person, kind, text, deadline)
+                if key in seen:
+                    continue
+                seen.add(key)
+                old = next((i for i in existing if (i["person"], i["kind"], i["text"], i["deadline"]) == key), None)
+                if old and (old["origin"] == "human" or old["status"] in ("completed", "cancelled")):
+                    status = old["status"]
+                self._append(db, old["item"] if old else uuid4().hex, person, kind, text, status,
+                             deadline, source, date, quote, "summary", "delivered_summary")
+                count += 1
+            db.execute("INSERT INTO pm_summary_sources VALUES (?,?,?)", (self.tenant, source, digest))
+        return {"status": "completed", "records": count}
 
     def ingest(self, transcript, source, participants, call):  # noqa: PLR0912, PLR0915
         """Extract once, verify quotes, then atomically append conservative events."""

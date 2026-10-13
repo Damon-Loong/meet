@@ -629,13 +629,13 @@ def enqueue_meeting_archive(tenant_id, transcript, source):
         logger.warning("Meeting archive enqueue failed; original transcript retained")
 
 
-def enqueue_personal_memory(tenant, transcript, source, participants):
+def enqueue_personal_memory(tenant, transcript, source, participants, summary=None):
     """Do not let personal-memory queue failures retry a sent meeting email."""
     if not settings.personal_memory_enabled or not allowed(settings, tenant):
         return
     try:
         update_personal_memory_task.apply_async(
-            args=[tenant, transcript, source, participants]
+            args=[tenant, transcript, source, participants, summary]
         )
     except Exception:
         logger.warning("Personal memory enqueue failed; meeting delivery unaffected")
@@ -650,18 +650,21 @@ def enqueue_personal_memory(tenant, transcript, source, participants):
     max_retries=3,
     queue=settings.summarize_queue_v2,
 )
-def update_personal_memory_task(self, tenant, transcript, source, participants):
+def update_personal_memory_task(self, tenant, transcript, source, participants, summary=None):
     """Extract independently after delivery; never enqueue summary or email jobs."""
     if not settings.personal_memory_enabled or not allowed(settings, tenant):
         return {"status": "disabled"}
     observation = None
     try:
-        observation = LLMObservability(session_id=source, user_id="personal-memory")
-        llm = LLMService(observation)
         memory = PersonalMemory(
             settings.meeting_memory_state_file, tenant, settings.document_timezone
         )
-        result = memory.ingest(transcript, source, participants, llm.call)
+        # Old queued jobs lack the delivered summary: never silently re-extract.
+        if summary is None:
+            return {"status": "needs_review", "reason": "missing_delivered_summary"}
+        result = memory.ingest_summary(summary, transcript, source, participants)
+        if result.get("status") == "needs_review":
+            logger.warning("Delivered summary tasks require review | source=%s reason=%s", source, result.get("reason"))
         if result.get("status") == "needs_retry":
             raise LLMException("No usable memory evidence; retry extraction")
         return result
@@ -1048,7 +1051,7 @@ def summarize_v2_task(
     metadata_manager.capture(job_id, settings.posthog_summary_success)
 
     enqueue_personal_memory(
-        payload.tenant_id, payload.content, source, payload.participants
+        payload.tenant_id, payload.content, source, payload.participants, summary
     )
 
     return success_payload.model_dump()

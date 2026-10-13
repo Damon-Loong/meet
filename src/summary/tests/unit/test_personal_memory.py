@@ -20,7 +20,7 @@ def transcript(line=LINE, date="2026-09-20", names="小王"):
 
 @pytest.fixture
 def memory(tmp_path):
-    result = PersonalMemory(tmp_path / "state.sqlite3", "team-a")
+    result = PersonalMemory(tmp_path / "state.sqlite3", "team-a", reminder_start="")
     result.register(ROSTER)
     return result
 
@@ -57,6 +57,63 @@ def test_create_read_and_replay(memory):
     assert "整理设备说明" in context and "周五" in context and LINE in context
 
 
+def test_delivered_summary_is_the_only_task_source(memory):
+    document = "**小王｜跟进**\n- [ ] 核对资料 **会议当天**\n- [ ] 做好数据及时性 **持续**\n**待确认事项**\n- 无明确记录。"
+    result = memory.ingest_summary(document, transcript("小王转述龙说模块已经加好"), "mail-one", ROSTER)
+    assert result == {"status": "completed", "records": 2}
+    assert {i["text"] for i in memory.items()} == {"核对资料", "做好数据及时性"}
+    assert {i["kind"] for i in memory.items()} == {"task", "responsibility"}
+    assert memory.ingest_summary(document, transcript(), "mail-one", ROSTER)["status"] == "already_processed"
+
+
+def test_summary_does_not_guess_unknown_owner_or_partially_import(memory):
+    document = "**小王**\n- [ ] 整理资料\n**龙**\n- [ ] 恢复模块"
+    assert memory.ingest_summary(document, transcript(), "unknown", ROSTER)["status"] == "needs_review"
+    assert memory.items() == []
+
+
+def test_beibei_mail_keeps_all_four_actions(memory):
+    roster = [{"identity": "beibei", "name": "北北"}]
+    tasks = ["坚持每日日报，从今天起新增工作全部记录", "节前工作清算，把之前版本发到群里供查看", "根据整改方案定时间节点，从今日起每日发督办", "做好数据及时性（群内机器人通知跟进）"]
+    document = "**北北｜日报与督办**\n" + "\n".join(f"- [ ] {task} **持续**" for task in tasks)
+    assert memory.ingest_summary(document, transcript(names="北北"), "four", roster)["records"] == 4
+    assert {i["text"] for i in memory.items()} == set(tasks)
+
+
+def test_summary_preserves_completed_state_and_deduplicates(memory):
+    document = "**小王**\n- [x] 整理资料\n- [x] 整理资料"
+    assert memory.ingest_summary(document, transcript(), "first", ROSTER)["records"] == 1
+    memory.ingest_summary(document.replace('[x]', '[ ]'), transcript(date="2026-09-21"), "second", ROSTER)
+    assert len(memory.items()) == 1
+    assert memory.items()[0]["status"] == "completed"
+
+
+def test_mail_cutover_all_emails_and_old_source_reimport(tmp_path):
+    memory = PersonalMemory(tmp_path / "cutover.sqlite3", "team-a")
+    roster = [
+        {"identity": "bei", "name": "北北", "email": "bei@example.com"},
+        {"identity": "long", "name": "龙", "email": "long@example.com"},
+    ]
+    memory.register(roster)
+    bei = next(p["id"] for p in memory.people() if p["name"] == "北北")
+    with memory.db() as db:
+        memory._append(db, "old", bei, "responsibility", "负责技术问题", "active", "", "yesterday", "2026-10-12", "old", "model", "")
+        db.execute("INSERT INTO pm_sources VALUES (?,?,?)", ("team-a", "yesterday", "old-model-digest"))
+    assert memory.task_items_by_email("bei@example.com") == []
+    document = "**北北｜前端与文档**\n- [ ] 修改提现页面\n- [ ] 编写规则文档\n- [ ] 找到设计稿\n- [ ] 做好数据及时性 **持续**\n**龙**\n- [ ] 修复服务"
+    assert memory.ingest_summary(document, transcript(date="2026-10-11"), "older", roster)["status"] == "skipped"
+    assert memory.ingest_summary(document, transcript(date="2026-10-12"), "yesterday", roster)["records"] == 5
+    own = memory.task_items_by_email("bei@example.com")
+    assert {r["text"] for r in own} == {"修改提现页面", "编写规则文档", "找到设计稿", "做好数据及时性"}
+    assert [r["text"] for r in memory.task_items_by_email("long@example.com")] == ["修复服务"]
+    done = memory.set_task_completed_by_email("bei@example.com", own[0]["item"], own[0]["seq"], True)
+    memory.ingest_summary(document, transcript(date="2026-10-13"), "today", roster)
+    assert len(memory.task_items_by_email("bei@example.com")) == 4
+    assert next(r for r in memory.task_items_by_email("bei@example.com") if r["item"] == done["item"])["status"] == "completed"
+    assert memory.ingest_summary(document, transcript(date="2026-10-12"), "yesterday", roster)["status"] == "already_processed"
+    assert memory.ingest_summary(document + "\n- [ ] 新内容", transcript(date="2026-10-12"), "yesterday", roster)["status"] == "needs_review"
+
+
 def test_no_mention_does_not_finish(memory):
     ingest(memory)
     ingest(memory, [], "two", transcript("今天讨论其他问题", "2026-09-21"))
@@ -86,7 +143,7 @@ def test_memory_task_retries_without_sending_mail(monkeypatch):
     monkeypatch.setattr(worker, "LLMObservability", Mock(return_value=observation))
     monkeypatch.setattr(worker, "LLMService", Mock())
     memory_class = Mock()
-    memory_class.return_value.ingest.side_effect = [
+    memory_class.return_value.ingest_summary.side_effect = [
         RuntimeError("temporary failure"),
         {"status": "needs_retry", "records": 0},
         {"status": "completed", "records": 1},
@@ -95,10 +152,11 @@ def test_memory_task_retries_without_sending_mail(monkeypatch):
     mail = Mock()
     monkeypatch.setattr(worker, "send_meeting_documents", mail)
     result = worker.update_personal_memory_task.apply(
-        args=["team-a", "text", "test-source", []]
+        args=["team-a", "text", "test-source", [], "delivered summary"]
     )
     assert result.get() == {"status": "completed", "records": 1}
-    assert memory_class.return_value.ingest.call_count == 3
+    assert memory_class.return_value.ingest_summary.call_count == 3
+    worker.LLMService.assert_not_called()
     mail.assert_not_called()
 
 
@@ -117,12 +175,12 @@ def test_memory_retries_exhausted_are_failed_and_alerted(monkeypatch, caplog):
     )
     monkeypatch.setattr(worker, "LLMObservability", Mock())
     monkeypatch.setattr(
-        worker, "LLMService", Mock(side_effect=RuntimeError("unavailable"))
+        worker, "PersonalMemory", Mock(side_effect=RuntimeError("unavailable"))
     )
     mail = Mock()
     monkeypatch.setattr(worker, "send_meeting_documents", mail)
     result = worker.update_personal_memory_task.apply(
-        args=["team-a", "text", "test-source", []]
+        args=["team-a", "text", "test-source", [], "delivered summary"]
     )
     assert result.failed()
     assert "retries exhausted" in caplog.text
@@ -199,6 +257,23 @@ def test_exact_email_returns_only_that_persons_tasks(memory):
     own = memory.task_items_by_email("wang@example.com")
     assert [item["text"] for item in own] == ["整理设备说明"]
     assert memory.task_items_by_email("unknown@example.com") == []
+
+
+def test_email_includes_responsibilities_newest_first_and_status_updates(memory):
+    memory.register([{"identity": "account-a", "name": "小王", "email": "wang@example.com"}])
+    person = memory.people()[0]["id"]
+    with memory.db() as db:
+        memory._append(db, "old-task", person, "task", "旧任务", "pending", "", "one", "2026-09-29", "evidence", "model", "")
+        memory._append(db, "new-duty", person, "responsibility", "数据及时性", "active", "", "two", "2026-10-12", "evidence", "model", "")
+    items = memory.task_items_by_email("wang@example.com")
+    assert [item["item"] for item in items] == ["new-duty", "old-task"]
+    assert memory.task_items_by_email("other@example.com") == []
+    done = memory.set_task_completed_by_email("wang@example.com", "new-duty", items[0]["seq"], True)
+    assert done["kind"] == "responsibility"
+    assert done["status"] == "completed"
+    reopened = memory.set_task_completed_by_email("wang@example.com", "new-duty", done["seq"], False)
+    assert reopened["kind"] == "responsibility"
+    assert reopened["status"] == "pending"
 
 
 def test_email_owner_can_complete_and_reopen_only_own_task(memory):
@@ -509,9 +584,8 @@ def test_summary_reads_personal_history_then_enqueues_after_mail(monkeypatch):
         "get_summary_signed_url",
         lambda _: "https://example.com/summary",
     )
-    monkeypatch.setattr(
-        worker, "send_meeting_documents", lambda **_: order.append("mail")
-    )
+    mail = Mock(side_effect=lambda **_: order.append("mail"))
+    monkeypatch.setattr(worker, "send_meeting_documents", mail)
     monkeypatch.setattr(worker, "_should_push_to_docs", lambda _: False)
     monkeypatch.setattr(worker.call_webhook_v2_task, "apply_async", Mock())
     monkeypatch.setattr(worker.metadata_manager, "capture", Mock())
@@ -538,4 +612,6 @@ def test_summary_reads_personal_history_then_enqueues_after_mail(monkeypatch):
         task.pop_request()
     assert generate.call_args.kwargs["history_context"] == "团队历史个人历史"
     assert order == ["store", "mail", "personal"]
-    assert queue.call_args.args[-1] == ROSTER
+    assert queue.call_args.args[-2] == ROSTER
+    assert "会议纪要" in queue.call_args.args[-1]
+    assert queue.call_args.args[-1] == mail.call_args.kwargs["summary"]
