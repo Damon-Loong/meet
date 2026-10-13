@@ -76,6 +76,33 @@ def test_template_preserves_metadata_and_unchecked_actions(content):
     assert "**待确认事项**" in result
 
 
+def test_generated_topic_replaces_mail_title_without_changing_body(content):
+    original = render(content)
+    topic = "自动分账上线与平台整改安排"
+    result = render({**content, "title": topic})
+    assert result == f"# {topic}｜会议纪要\n\n{original}"
+    assert _meeting_name("makaay的长期会议", result) == topic
+    formatted = celery_worker.format_summary_document(
+        transcript=TRANSCRIPT, summary=result, title="makaay的长期会议"
+    )
+    assert formatted.count(f"# {topic}｜会议纪要") == 1
+    assert _meeting_name("makaay的长期会议", formatted) == topic
+
+
+@pytest.mark.parametrize("title", [None, 123, {}, "", "会议总结", "短", "长" * 41,
+                                     "主题\nBcc: example", "<script>主题</script>"])
+def test_bad_topic_falls_back_without_blocking_summary(content, title):
+    result = render({**content, "title": title})
+    assert result == render(content)
+    assert _meeting_name("makaay的长期会议", result) == "makaay的长期会议"
+
+
+def test_new_generation_requests_title_in_strict_schema():
+    schema = SUMMARY_RESPONSE_FORMAT["json_schema"]["schema"]
+    assert "title" in schema["required"]
+    assert "default" not in schema["properties"]["title"]
+
+
 def test_no_tasks_does_not_invent_empty_roster_sections():
     result = render({"conclusions": [], "owners": [], "uncertainties": []})
     assert "- [ ]" not in result

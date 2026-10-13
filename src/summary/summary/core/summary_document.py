@@ -44,9 +44,35 @@ class OwnerActions(SummaryText):
 class ConciseSummary(SummaryText):
     """Content only: meeting metadata and layout are owned by the renderer."""
 
+    title: str = ""
     conclusions: list[Conclusion]
     owners: list[OwnerActions]
     uncertainties: list[str]
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def optional_topic(cls, value):
+        """A bad optional title must never invalidate an otherwise usable summary."""
+        if not isinstance(value, str):
+            return ""
+        value = value.strip()
+        if (
+            not 4 <= len(value) <= 40
+            or len(value.splitlines()) != 1
+            or any(ord(char) < 32 for char in value)
+            or re.search(r"[<>#*`\[\]{}|｜\\]", value)
+            or value in {"会议纪要", "会议总结", "会议资料", "本次会议"}
+        ):
+            return ""
+        return value
+
+
+def summary_response_schema():
+    """Request a title from new generations while accepting legacy saved JSON."""
+    schema = ConciseSummary.model_json_schema()
+    schema["properties"]["title"].pop("default", None)
+    schema["required"] = list(schema["properties"])
+    return schema
 
 
 SUMMARY_RESPONSE_FORMAT = {
@@ -54,7 +80,7 @@ SUMMARY_RESPONSE_FORMAT = {
     "json_schema": {
         "name": "concise_meeting_minutes",
         "strict": True,
-        "schema": ConciseSummary.model_json_schema(),
+        "schema": summary_response_schema(),
     },
 }
 
@@ -151,6 +177,8 @@ def render_concise_summary(content: ConciseSummary, transcript: str) -> str:
         "",
         *_conclusion_lines(content),
     ]
+    if content.title:
+        lines = [f"# {content.title}｜会议纪要", "", *lines]
     groups, pending = _owner_groups(content)
     has_undated_actions = False
     for owner, focus, actions in groups.values():

@@ -115,6 +115,18 @@ def test_summary_known_absent_owner_and_markdown_escapes(memory):
     )
 
 
+def test_mail_topic_heading_does_not_change_reminder_import(memory):
+    document = (
+        "# 自动分账上线与平台整改安排｜会议纪要\n\n"
+        "**会议纪要｜2026 年 10 月 13 日**\n\n"
+        "**小王｜平台整改**\n- [ ] 整理整改清单 **今天**\n"
+        "**待确认事项**\n- 无明确记录。"
+    )
+    result = memory.ingest_summary(document, transcript(), "topic-mail", ROSTER)
+    assert result == {"status": "completed", "records": 1}
+    assert memory.items()[0]["text"] == "整理整改清单"
+
+
 def test_summary_preserves_completed_state_and_deduplicates(memory):
     document = "**小王**\n- [x] 整理资料\n- [x] 整理资料"
     assert (

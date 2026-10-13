@@ -5,10 +5,13 @@ from email import policy
 from email.parser import BytesParser
 from unittest.mock import MagicMock, Mock
 
+import pytest
+
 from summary.core import email_service
 
 
-def test_original_meeting_date_and_single_filename_parameter(monkeypatch):
+@pytest.mark.parametrize("topic", ["", "自动分账上线与平台整改安排"])
+def test_original_meeting_date_and_single_filename_parameter(monkeypatch, topic):
     monkeypatch.setattr(
         email_service,
         "settings",
@@ -28,6 +31,8 @@ def test_original_meeting_date_and_single_filename_parameter(monkeypatch):
         + "正文测试。\n" * 12000
     )
     summary = "**会议纪要｜2026 年 9 月 28 日**\n\n- [ ] 完整待办。\n"
+    if topic:
+        summary = f"# {topic}｜会议纪要\n\n{summary}"
     email_service.send_meeting_documents(
         recipients=["test@example.com"],
         title="【测试】marsh的长期会议｜新版纪要验收",
@@ -47,7 +52,11 @@ def test_original_meeting_date_and_single_filename_parameter(monkeypatch):
     ]
     assert parts[0].get_payload(decode=True) == transcript.encode("utf-8")
     assert parts[1].get_payload(decode=True) == summary.encode("utf-8")
-    assert "【测试】marsh的长期会议｜新版纪要验收" in str(decoded["Subject"])
+    expected = topic or "【测试】marsh的长期会议｜新版纪要验收"
+    assert expected in str(decoded["Subject"])
+    assert expected in decoded.get_body(preferencelist=("html",)).get_content()
+    assert str(decoded["To"]) == "test@example.com"
+    smtp.__enter__.return_value.send_message.assert_called_once()
 
 
 def test_business_meeting_title_not_rewritten():
