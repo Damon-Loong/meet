@@ -16,6 +16,7 @@ from summary.core.personal_memory import PersonalMemory
 
 
 def main():
+    """Preview the full bundle without mutating the source database."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", required=True)
     parser.add_argument("--tenant", required=True)
@@ -26,18 +27,37 @@ def main():
         raise ValueError("Expected a list of delivered meeting documents")
     with tempfile.TemporaryDirectory(prefix="mail-reminders-preview-") as folder:
         target = Path(folder) / "preview.sqlite3"
-        with sqlite3.connect(Path(args.database).resolve().as_uri() + "?mode=ro", uri=True) as source:
+        with sqlite3.connect(
+            Path(args.database).resolve().as_uri() + "?mode=ro", uri=True
+        ) as source:
             with sqlite3.connect(target) as dest:
                 source.backup(dest)
         memory = PersonalMemory(target, args.tenant)
         results = []
         for document in documents:
-            result = memory.ingest_summary(document["summary"], document["transcript"], document["source"], document["participants"])
+            result = memory.ingest_summary(
+                document["summary"],
+                document["transcript"],
+                document["source"],
+                document["participants"],
+            )
             results.append({"source": document["source"], **result})
-        people = [{"name": person["name"], "email": email,
-                   "items": memory.task_items_by_email(email)}
-                  for person in memory.people() for email in person["emails"]]
-        print(json.dumps({"preview_only": True, "imports": results, "people": people}, ensure_ascii=False, indent=2))
+        people = [
+            {
+                "name": person["name"],
+                "email": email,
+                "items": memory.task_items_by_email(email),
+            }
+            for person in memory.people()
+            for email in person["emails"]
+        ]
+        print(  # noqa: T201
+            json.dumps(
+                {"preview_only": True, "imports": results, "people": people},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         if any(r["status"] == "needs_review" for r in results):
             raise SystemExit(2)
 

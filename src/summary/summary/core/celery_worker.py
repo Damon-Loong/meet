@@ -650,7 +650,9 @@ def enqueue_personal_memory(tenant, transcript, source, participants, summary=No
     max_retries=3,
     queue=settings.summarize_queue_v2,
 )
-def update_personal_memory_task(self, tenant, transcript, source, participants, summary=None):
+def update_personal_memory_task(  # noqa: PLR0917
+    self, tenant, transcript, source, participants, summary=None
+):
     """Extract independently after delivery; never enqueue summary or email jobs."""
     if not settings.personal_memory_enabled or not allowed(settings, tenant):
         return {"status": "disabled"}
@@ -664,7 +666,10 @@ def update_personal_memory_task(self, tenant, transcript, source, participants, 
             return {"status": "needs_review", "reason": "missing_delivered_summary"}
         result = memory.ingest_summary(summary, transcript, source, participants)
         if result.get("status") == "needs_review":
-            logger.warning("Delivered summary tasks require review | source=%s reason=%s", source, result.get("reason"))
+            logger.warning(
+                "Delivered summary tasks require review | source=%s reason=%s",
+                source, result.get("reason"),
+            )
         if result.get("status") == "needs_retry":
             raise LLMException("No usable memory evidence; retry extraction")
         return result
@@ -1050,9 +1055,14 @@ def summarize_v2_task(
     )
     metadata_manager.capture(job_id, settings.posthog_summary_success)
 
-    enqueue_personal_memory(
-        payload.tenant_id, payload.content, source, payload.participants, summary
-    )
+    if (
+        settings.email_delivery_enabled
+        and payload.recipient_emails
+        and payload.push_to_docs_config
+    ):
+        enqueue_personal_memory(
+            payload.tenant_id, payload.content, source, payload.participants, summary
+        )
 
     return success_payload.model_dump()
 
