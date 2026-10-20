@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from summary.core.summary_fallback import is_unavailable
 from summary.core.summary_quality import (
     SummaryReviewRequired,
     delivery_audit_callback,
@@ -67,9 +68,60 @@ def test_one_repair_then_full_review():
 
 def test_major_error_repair_never_returned():
     call = Mock(side_effect=[CRITICAL, draft(), CRITICAL])
-    with pytest.raises(SummaryReviewRequired):
-        ensure_deliverable(draft(), "原文", "", call, "规则")
+    assert is_unavailable(ensure_deliverable(draft(), "原文", "", call, "规则"))
+    assert call.call_count == 5
+
+
+def test_failed_repair_regenerates_from_full_source_and_keeps_audits():
+    call = Mock(side_effect=[CRITICAL, draft(), CRITICAL, draft("仍在讨论。"), GOOD])
+    entries = []
+    result = ensure_deliverable(
+        draft(), "完整原文", "历史背景", call, "规则", audit=entries.append
+    )
+    assert "仍在讨论" in result
+    assert [e["attempt"] for e in entries] == [0, 1, 2]
+    regeneration = call.call_args_list[3]
+    assert regeneration.kwargs["name"] == "delivery-regenerate"
+    assert "完整原文" in regeneration.args[1]
+    assert "核心决策与原文相反" in regeneration.args[1]
+
+
+def test_recovery_is_bounded_and_still_rejects_major_errors():
+    call = Mock(
+        side_effect=[CRITICAL, draft(), CRITICAL, draft(), CRITICAL, draft(), CRITICAL]
+    )
+    assert is_unavailable(ensure_deliverable(draft(), "原文", "", call, "规则"))
+    assert call.call_count == 8
+    assert (
+        sum(c.kwargs["name"] == "delivery-regenerate" for c in call.call_args_list) == 1
+    )
+
+
+def test_regeneration_cannot_clear_major_error_during_reviewer_outage():
+    call = Mock(
+        side_effect=[
+            CRITICAL,
+            draft(),
+            CRITICAL,
+            draft(),
+            TimeoutError(),
+            draft(),
+            TimeoutError(),
+        ]
+    )
+    assert is_unavailable(ensure_deliverable(draft(), "原文", "", call, "规则"))
+
+
+def test_advisory_issues_never_trigger_regeneration():
+    call = Mock(side_effect=[BAD, draft(), BAD])
+    assert "仅为预计" in ensure_deliverable(draft(), "原文", "", call, "规则")
     assert call.call_count == 3
+
+
+def test_persistent_fragment_can_recover_with_fresh_generation():
+    broken = draft("通过部署")
+    call = Mock(side_effect=[GOOD, broken, GOOD, draft(), GOOD])
+    assert "仅为预计" in ensure_deliverable(broken, "原文", "", call, "规则")
 
 
 @pytest.mark.parametrize("reply", ["{}", "not json", '{"approved":false,"issues":[]}'])
@@ -81,8 +133,7 @@ def test_invalid_or_negative_verdict_does_not_block(reply):
 def test_local_fragment_check_overrides_optimistic_reviewer():
     broken = draft("通过部署")
     call = Mock(side_effect=[GOOD, broken, GOOD])
-    with pytest.raises(SummaryReviewRequired):
-        ensure_deliverable(broken, "原文", "", call, "规则")
+    assert is_unavailable(ensure_deliverable(broken, "原文", "", call, "规则"))
 
 
 def test_real_meeting_dangling_speaker_is_repaired():
@@ -113,8 +164,7 @@ def test_minor_disagreement_after_repair_still_delivers():
 
 def test_major_error_not_cleared_by_reviewer_outage():
     call = Mock(side_effect=[CRITICAL, draft(), TimeoutError()])
-    with pytest.raises(SummaryReviewRequired):
-        ensure_deliverable(draft(), "原文", "", call, "规则")
+    assert is_unavailable(ensure_deliverable(draft(), "原文", "", call, "规则"))
 
 
 @pytest.mark.parametrize(
@@ -144,8 +194,9 @@ def test_punctuation_only_does_not_block_after_failed_repair():
 
 def test_punctuation_does_not_hide_critical_fact_error():
     call = Mock(side_effect=[CRITICAL, draft("核对资料（包含附件。"), CRITICAL])
-    with pytest.raises(SummaryReviewRequired):
+    assert is_unavailable(
         ensure_deliverable(draft("核对资料（包含附件。"), "原文", "", call, "规则")
+    )
 
 
 def test_malformed_draft_can_be_repaired_once():
