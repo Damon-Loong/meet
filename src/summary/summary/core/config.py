@@ -10,6 +10,7 @@ from pydantic import (
     ConfigDict,
     Field,
     SecretStr,
+    StringConstraints,
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -93,12 +94,33 @@ class Settings(BaseSettings):
     whisperx_asr_model: str = "whisper-1"
     whisperx_response_format: str = "diarized_json"
     whisperx_max_completion_tokens: int | None = 65536
+    # JSON array via WHISPERX_HOTWORDS; empty array disables hints.
+    # Only user-confirmed spellings, never auto-learn from unverified transcripts.
+    whisperx_hotwords: tuple[
+        Annotated[
+            str,
+            StringConstraints(
+                strip_whitespace=True, min_length=1, max_length=64,
+                pattern=r"^[^\r\n]+$",
+            ),
+        ], ...
+    ] = Field(default=("见福",), max_length=100)
     # ISO 639-1 language code (e.g., "en", "fr", "es")
     whisperx_default_language: Optional[str] = None
     whisperx_allowed_languages: Set[str] = {"en", "fr", "de", "nl", "zh"}
     llm_base_url: str
     llm_api_key: SecretStr
     llm_model: str
+    # Opt-in until source-backed generation passes real-meeting acceptance.
+    summary_evidence_enabled: bool = False
+    summary_evidence_max_source_chars: int = Field(default=50000, ge=1000)
+    # Separate opt-ins; require a persistent state volume and explicit tenant.
+    meeting_memory_read_enabled: bool = False
+    meeting_memory_write_enabled: bool = False
+    personal_memory_enabled: bool = False
+    meeting_memory_tenant_id: str = ""
+    meeting_memory_config_file: str = "/run/secrets/meet-knowledge.json"
+    meeting_memory_state_file: str = "/var/lib/meet-memory/state.sqlite3"
     summary_output_language: str = "zh-CN"
     document_timezone: str = "Asia/Shanghai"
     default_context_language: str = "en"

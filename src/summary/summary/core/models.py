@@ -133,6 +133,7 @@ class SummarizeTaskApiRequest(SharedV2TaskCreation):
     """Model for creating a summarize task (used for API request)."""
 
     content: str = Field(title="Content", description="The content to summarize.")
+    participants: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
 
 
 class SummarizeTaskJob(SummarizeTaskApiRequest):

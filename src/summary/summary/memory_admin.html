@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Meet · 个人记忆管理</title>
+<style>
+body{font:16px/1.6 system-ui;margin:32px auto;padding:0 20px;max-width:1050px;background:#f5f7fa;color:#182c42}h1{margin-bottom:4px}section,article{background:white;border:1px solid #d9e1eb;border-radius:12px;padding:20px;margin:18px 0}label{display:block;margin:10px 0}input,select,textarea,button{font:inherit;box-sizing:border-box;border:1px solid #bac6d3;border-radius:6px;padding:8px}input,textarea{width:100%}button{cursor:pointer;background:#163a60;color:white;margin:6px 8px 0 0}small,blockquote{color:#52667c}blockquote{white-space:pre-wrap;border-left:3px solid #bdccd9;margin:12px 0;padding-left:12px}textarea{min-height:76px}#notice{white-space:pre-wrap}summary{cursor:pointer}.row{display:flex;gap:12px;flex-wrap:wrap}.row>label{flex:1;min-width:150px}
+</style>
+<h1>个人记忆 · 团队共享</h1>
+<p>按人整理职责、承诺与进展。未提及不等于完成，待确认不等于已确定。</p>
+<section><h2>管理员连接</h2><small>仅供授权管理员使用。填写此服务的租户调用密钥，不是模型密钥；不会保存到浏览器存储。普通参会者不要持有调用密钥。</small>
+<form id="connect"><label>调用密钥<input id="token" type="password" autocomplete="off" required></label><button>读取记忆</button><button type="button" id="disconnect">断开并清空</button></form>
+<p id="notice" role="status" aria-live="polite"></p></section>
+<div id="workspace" hidden>
+<section><h2>人员对应</h2><p>账号相同自动关联；同名不自动合并。可人工补充昵称、纠正名字。不同账号需明确添加到同一人员。</p>
+<form id="person"><label>编辑人员<select id="profile"></select></label><p id="accounts"></p><label>姓名<input id="name" required maxlength="100"></label><label>昵称/别名（用顿号分隔）<input id="aliases" maxlength="3000"></label><label>新增关联账号（可选；已归属其他人时不会抢占）<input id="account" maxlength="200"></label><button>保存人员对应</button></form>
+<details><summary>合并已确认是同一个人的重复档案</summary><p>只在已核实两个账号属于同一个人时操作，任务和账号将归入保留档案，原始记录不会删除。</p><form id="merge"><label>待合并档案<select id="merge-source" required></select></label><label>保留档案<select id="merge-target" required></select></label><label>确认依据<input id="merge-reason" required maxlength="500"></label><button>确认合并</button></form></details></section>
+<section><h2>职责与任务</h2><label>筛选人员<select id="filter"></select></label><p>人工纠正会留下记录，并优先于自动提取；后续模型冲突另列待确认，不覆盖人工结论。</p><div id="items"></div></section>
+</div>
+<script>
+const $=id=>document.getElementById(id), root='__API_PREFIX__/personal-memory';
+let data={people:[],items:[]},session=0;
+const labels={pending:'待办',in_progress:'进行中',completed:'已完成',cancelled:'已取消',active:'持续负责',needs_confirmation:'待确认'};
+function node(tag,text){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n}
+function option(select,value,text){const n=node('option',text);n.value=value;select.append(n)}
+async function api(path='',method='GET',body){const started=session;const r=await fetch(root+path,{method,headers:{Authorization:'Bearer '+$('token').value,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,cache:'no-store'});const result=await r.json();if(started!==session)throw Error('连接已断开');if(!r.ok)throw Error(typeof result.detail==='string'?result.detail:'请求失败，请检查字段或权限');return result}
+async function action(fn){try{$('notice').textContent='处理中…';await fn();$('notice').textContent='操作完成。'}catch(e){$('notice').textContent=e.message}}
+function peopleOptions(select,empty){select.replaceChildren();option(select,'',empty);for(const p of data.people)option(select,p.id,p.name+' · '+p.id.slice(0,6))}
+async function load(){data=await api();$('workspace').hidden=false;peopleOptions($('profile'),'新建人员');peopleOptions($('merge-source'),'请选择');peopleOptions($('merge-target'),'请选择');peopleOptions($('filter'),'全部人员');option($('filter'),'unassigned','未能确认负责人');$('person').reset();$('accounts').textContent='';render()}
+$('connect').onsubmit=e=>{e.preventDefault();action(load)};
+$('disconnect').onclick=()=>{session++;$('token').value='';data={people:[],items:[]};$('workspace').hidden=true;$('items').replaceChildren();$('person').reset();$('merge').reset();for(const id of ['profile','filter','merge-source','merge-target'])$(id).replaceChildren();$('accounts').textContent='';$('notice').textContent='已断开，页面数据已清空。'};
+$('profile').onchange=()=>{const p=data.people.find(p=>p.id===$('profile').value);$('name').value=p?.name||'';$('aliases').value=p?.aliases.join('、')||'';$('account').value='';$('accounts').textContent='已关联账号：'+(p?.accounts.join('、')||'无')};
+$('merge').onsubmit=e=>{e.preventDefault();if(!confirm('确认这两个档案属于同一个人？'))return;action(async()=>{await api('/people/merge','POST',{source:$('merge-source').value,target:$('merge-target').value,reason:$('merge-reason').value});await load();$('merge').reset()})};
+$('person').onsubmit=e=>{e.preventDefault();action(async()=>{await api('/people','POST',{person:$('profile').value,name:$('name').value,aliases:$('aliases').value.split('、').map(s=>s.trim()).filter(Boolean),account:$('account').value});await load();$('person').reset()})};
+$('filter').onchange=render;
+function render(){$('items').replaceChildren();const records=data.items.filter(i=>!$('filter').value||($('filter').value==='unassigned'?!i.person:i.person===$('filter').value));if(!records.length)$('items').append(node('p','暂无记录。'));
+for(const i of records){const article=node('article');article.append(node('h3',(i.kind==='task'?'任务':'职责')+' · '+labels[i.status]));article.append(node('small','会议：'+i.meeting_date+' · 来源：'+i.source+' · '+(i.origin==='human'?'人工确认':'自动提取')));article.append(node('blockquote',i.quote));const form=node('form');const owner=node('select');peopleOptions(owner,'负责人待确认');owner.value=i.person;const status=node('select');for(const [k,v]of Object.entries(labels))option(status,k,v);status.value=i.status;const text=node('textarea');text.value=i.text;text.required=true;text.maxLength=600;const due=node('input');due.value=i.deadline;due.maxLength=100;const reason=node('input');reason.required=true;reason.maxLength=500;reason.placeholder='如：负责人已确认完成，或纠正会议中的误识别';for(const [title,field]of [['负责人',owner],['状态',status],['内容',text],['时间要求（未明确可留空）',due],['本次修改依据/原因',reason]]){const label=node('label',title);label.append(field);form.append(label)}const save=node('button','保存确认 / 纠正');form.append(save);form.onsubmit=e=>{e.preventDefault();action(async()=>{await api('/items/'+i.item,'PATCH',{revision:i.seq,person:owner.value,text:text.value,status:status.value,deadline:due.value,reason:reason.value});await load()})};article.append(form);const history=node('button','查看变化记录');history.type='button';const log=node('pre');log.style.whiteSpace='pre-wrap';history.onclick=()=>action(async()=>{const rows=await api('/items/'+i.item+'/history');log.textContent=rows.map(r=>r.meeting_date+' '+labels[r.status]+' ['+r.origin+'] '+r.text+'\n'+(r.reason||r.quote)).join('\n\n')});article.append(history,log);$('items').append(article)}}
+</script></html>
