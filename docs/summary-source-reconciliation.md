@@ -31,3 +31,25 @@ building a release. Record the exact source commit and image digest for each
 new release. Do not overwrite current production configuration with development
 defaults. A future rebuild still requires deployment configuration and dependency
 verification; Python source equality alone is not a complete image rebuild test.
+
+## Transcript-first delivery and bounded recovery
+
+The subsequent delivery fallback change adds one fresh generation after a failed
+repair, followed by item-level verification if needed. Only original items with
+explicit support are retained; uncertain decisions/actions are not published as
+facts or executable reminders. If no reliable conclusions/actions remain, the
+email contains the transcript, recording links and a generation-status notice.
+The notice is excluded from personal-memory ingestion.
+
+For enabled participant email delivery, failed generation schedules recovery
+after five minutes, with one further attempt fifteen minutes after a failed
+recovery. A usable result is sent as a labelled supplement. Exhaustion is recorded
+as `needs_review`; it does not send another empty notice or retry indefinitely.
+
+`delivery.sqlite3`, next to the configured memory database, stores the selected
+document and email-stage checkpoint. Retries reuse the selected document. SMTP
+acceptance marks that stage sent; uncertain SMTP outcomes are not blindly retried
+because acceptance may already have occurred. This is duplicate avoidance, not
+an exactly-once inbox-delivery guarantee. Operators must investigate uncertain
+transport outcomes and exhausted recovery tasks. Preserve the delivery database
+across releases; do not restore an old checkpoint database during rollback.

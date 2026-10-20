@@ -16,6 +16,7 @@ from summary.core.summary_document import (
     ConciseSummary,
     render_concise_summary,
 )
+from summary.core.summary_fallback import salvage_draft
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,67 @@ def local_issues(content):
 
 
 def ensure_deliverable(raw, transcript, history, call, system_prompt, *, audit=None):  # noqa: PLR0913
+    """Try one fresh generation before giving up on an unusable repaired draft.
+
+    Recovery stays inside generation, before storage and email delivery. Never
+    rerun the entire delivery task merely to recover a quality-check failure.
+    """
+    findings = []
+    drafts = [raw]
+
+    def record(entry):
+        findings.extend(entry.get("blocking", []))
+        drafts.append(entry["draft"])
+        if audit:
+            audit(entry)
+
+    try:
+        return _review_draft(
+            raw, transcript, history, call, system_prompt, audit=record
+        )
+    except SummaryReviewRequired:
+        logger.warning("Summary repair exhausted; regenerating from source once")
+
+    source = json.dumps(
+        {"本次完整转录": transcript, "历史背景": history}, ensure_ascii=False
+    )
+    try:
+        regenerated = call(
+            system_prompt,
+            source
+            + "\n请从本次完整转录重新生成完整纪要，不沿用失败草稿。"
+            + "历史只作背景；以本次会议的新说法为准。宁可稍长，不要残句。"
+            + "以下是上一轮发现的问题，仅作核对提示，不是会议事实：\n"
+            + json.dumps(list(dict.fromkeys(findings)), ensure_ascii=False),
+            name="delivery-regenerate",
+            response_format=SUMMARY_RESPONSE_FORMAT,
+        )
+    except Exception:
+        return salvage_draft(drafts[-1], transcript, call, findings, audit=audit)
+
+    def recovery_audit(entry):
+        findings.extend(entry.get("blocking", []))
+        drafts.append(entry["draft"])
+        if audit:
+            audit({**entry, "attempt": entry["attempt"] + 2, "phase": "regenerated"})
+
+    try:
+        return _review_draft(
+            regenerated,
+            transcript,
+            history,
+            call,
+            system_prompt,
+            audit=recovery_audit,
+            require_review=True,
+        )
+    except SummaryReviewRequired:
+        return salvage_draft(drafts[-1], transcript, call, findings, audit=audit)
+
+
+def _review_draft(  # noqa: PLR0913
+    raw, transcript, history, call, system_prompt, *, audit=None, require_review=False
+):
     """Repair once; fall back to a usable draft for advisory/reviewer failures."""
     source = json.dumps(
         {"本次完整转录": transcript, "历史背景": history}, ensure_ascii=False
@@ -145,7 +207,7 @@ def ensure_deliverable(raw, transcript, history, call, system_prompt, *, audit=N
                 )
                 # Never erase a previously observed major factual error merely
                 # because the repair's reviewer is unavailable.
-                if attempt and fallback is None:
+                if (attempt or require_review) and fallback is None:
                     blocking.append("此前严重问题尚未复核")
         if not blocking:
             fallback = rendered

@@ -22,6 +22,7 @@ from summary.core.analytics import MetadataManager, get_analytics
 from summary.core.asr_prompt import transcription_prompt
 from summary.core.config import get_settings
 from summary.core.docs_service import create_document_in_lasuite_docs
+from summary.core.delivery_state import DeliveryState, DeliveryUncertain
 from summary.core.email_service import send_meeting_documents
 from summary.core.evidence_summary import (
     SummaryReviewRequired,
@@ -52,6 +53,7 @@ from summary.core.models import (
 from summary.core.meeting_memory import allowed, open_memory, optional_history
 from summary.core.personal_memory import PersonalMemory, personal_context
 from summary.core.summary_quality import delivery_audit_callback, ensure_deliverable
+from summary.core.summary_fallback import is_unavailable, unavailable_summary
 from summary.core.prompt import (
     PROMPT_SYSTEM_FINAL_SUMMARY,
     PROMPT_SYSTEM_SEGMENT_EXTRACT,
@@ -969,7 +971,7 @@ def handle_transcribe_v2_failed(  # noqa: PLR0917
 @celery.task(
     bind=True,
     autoretry_for=[LLMException, Exception],
-    dont_autoretry_for=[SummaryReviewRequired],
+    dont_autoretry_for=[SummaryReviewRequired, DeliveryUncertain],
     max_retries=settings.celery_max_retries,
     queue=settings.summarize_queue_v2,
 )
@@ -1009,21 +1011,32 @@ def summarize_v2_task(
         history += personal_context(
             settings, payload.tenant_id, payload.participants, payload.content, source
         )
-    summary = summarize_transcription_internals(
-        distinct_id=payload.user_sub,
-        transcript=payload.content,
-        session_id=self.request.id,
-        **({"history_context": history} if history else {}),
-    )
-    summary = format_summary_document(
-        transcript=payload.content,
-        summary=summary,
-        title=(
-            payload.push_to_docs_config.title
-            if payload.push_to_docs_config
-            else "会议总结"
-        ),
-    )
+    mail_enabled = bool(settings.email_delivery_enabled and payload.recipient_emails and payload.push_to_docs_config)
+    delivery_key = f"{payload.tenant_id}:{self.request.id}:initial"
+    state = DeliveryState(settings.meeting_memory_state_file) if mail_enabled else None
+    summary = state.summary(delivery_key) if state else None
+    supplement_key = f"{payload.tenant_id}:{self.request.id}:supplement"
+    if state and state.status(supplement_key) == "sent":
+        # A late retry must not overwrite a delivered supplement with its old notice.
+        summary = state.summary(supplement_key) or summary
+    if summary is None:
+        try:
+            summary = summarize_transcription_internals(
+                distinct_id=payload.user_sub, transcript=payload.content,
+                session_id=self.request.id,
+                **({"history_context": history} if history else {}),
+            )
+        except (SummaryReviewRequired, LLMException):
+            if not mail_enabled:
+                raise
+            logger.warning("Summary unavailable; delivering transcript first")
+            summary = unavailable_summary()
+        summary = format_summary_document(
+            transcript=payload.content, summary=summary,
+            title=payload.push_to_docs_config.title if payload.push_to_docs_config else "会议总结",
+        )
+        if state:
+            summary = state.remember(delivery_key, summary)
     job_id = self.request.id
     file_service.store_summary(summary=summary, job_id=job_id)
 
@@ -1040,6 +1053,12 @@ def summarize_v2_task(
             webhook_api_key=settings.get_authorized_tenant(
                 tenant_id=payload.tenant_id
             ).webhook_api_key.get_secret_value(),
+            delivery_key=delivery_key if mail_enabled else None,
+        )
+
+    if mail_enabled and is_unavailable(summary):
+        recover_summary_mail_task.apply_async(
+            args=[payload.model_dump(mode="json"), str(job_id)], countdown=300,
         )
 
     if _should_push_to_docs(payload):
@@ -1066,12 +1085,66 @@ def summarize_v2_task(
         settings.email_delivery_enabled
         and payload.recipient_emails
         and payload.push_to_docs_config
+        and not is_unavailable(summary)
     ):
         enqueue_personal_memory(
             payload.tenant_id, payload.content, source, payload.participants, summary
         )
 
     return success_payload.model_dump()
+
+
+@celery.task(bind=True, max_retries=1, queue=settings.summarize_queue_v2)
+def recover_summary_mail_task(self, payload: dict, original_job: str):
+    """Two delayed attempts; a supplement has a separate durable send key."""
+    payload = SummarizeTaskJob.model_validate(payload)
+    if not settings.email_delivery_enabled or not payload.recipient_emails or not payload.push_to_docs_config:
+        return {"status": "disabled"}
+    state = DeliveryState(settings.meeting_memory_state_file)
+    initial_key = f"{payload.tenant_id}:{original_job}:initial"
+    if state.status(initial_key) != "sent":
+        return {"status": "initial_delivery_not_confirmed"}
+    key = f"{payload.tenant_id}:{original_job}:supplement"
+    summary = state.summary(key)
+    if summary is None:
+        source = str(payload.media_recording_id or original_job)
+        history = optional_history(settings, payload.tenant_id, list(payload.recipient_emails), payload.content, source)
+        history += personal_context(settings, payload.tenant_id, payload.participants, payload.content, source)
+        try:
+            summary = summarize_transcription_internals(
+                distinct_id=payload.user_sub, transcript=payload.content,
+                session_id=f"{original_job}-recovery-{self.request.retries}", history_context=history,
+            )
+            if is_unavailable(summary):
+                raise SummaryReviewRequired()
+        except (LLMException, SummaryReviewRequired) as exc:
+            if self.request.retries < self.max_retries:
+                raise self.retry(exc=exc, countdown=900)
+            logger.error("Summary supplement exhausted; transcript already delivered | job=%s", original_job)
+            return {"status": "needs_review", "job": original_job}
+        summary = state.remember(key, format_summary_document(
+            transcript=payload.content, summary=summary, title=payload.push_to_docs_config.title,
+        ))
+    tenant = settings.get_authorized_tenant(tenant_id=payload.tenant_id)
+    try:
+        send_meeting_documents(
+            recipients=[str(email) for email in payload.recipient_emails],
+            title=payload.push_to_docs_config.title, transcript=payload.content, summary=summary,
+            media_recording_id=payload.media_recording_id,
+            webhook_url=str(tenant.webhook_url), webhook_api_key=tenant.webhook_api_key.get_secret_value(),
+            delivery_key=key, supplement=True,
+        )
+        file_service.store_summary(summary=summary, job_id=original_job)
+        call_webhook_v2_task.apply_async(args=[SummarizeWebhookSuccessPayload(
+            job_id=original_job, summary_data_url=file_service.get_summary_signed_url(original_job),
+        ).model_dump(), payload.tenant_id])
+    except DeliveryUncertain:
+        raise
+    except Exception as exc:
+        raise self.retry(exc=exc, countdown=300)
+    enqueue_personal_memory(payload.tenant_id, payload.content,
+        str(payload.media_recording_id or original_job), payload.participants, summary)
+    return {"status": "supplement_sent", "job": original_job}
 
 
 @signals.task_prerun.connect(sender=summarize_v2_task)

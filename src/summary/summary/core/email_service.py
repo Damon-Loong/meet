@@ -13,7 +13,9 @@ from zoneinfo import ZoneInfo
 import requests
 
 from summary.core.config import get_settings
+from summary.core.delivery_state import DeliveryState, DeliveryUncertain
 from summary.core.meeting_memory import source_date
+from summary.core.summary_fallback import is_unavailable
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -68,6 +70,8 @@ def send_meeting_documents(
     media_recording_id: UUID | None = None,
     webhook_url: str | None = None,
     webhook_api_key: str | None = None,
+    delivery_key: str | None = None,
+    supplement: bool = False,
 ) -> None:
     """Send one message to all meeting participants."""
     recipients = list(dict.fromkeys(email.strip().lower() for email in recipients))
@@ -75,6 +79,18 @@ def send_meeting_documents(
     if not settings.email_delivery_enabled:
         logger.info("Email delivery is disabled; skipping message to %s", recipients)
         return
+
+    state = DeliveryState(settings.meeting_memory_state_file) if delivery_key else None
+    if state and state.status(delivery_key) == "sent":
+        return
+    if state and state.status(delivery_key) != "ready":
+        raise DeliveryUncertain("Email outcome requires review")
+    fallback = is_unavailable(summary)
+    notice = (
+        "会议转录已完成，请查看附件及录音链接。纪要暂未生成成功，系统将自动重试，成功后另行补发；若仍失败需管理员处理。"
+        if fallback
+        else "本次会议的语音转录和 AI 总结已完成，请查看邮件附件。"
+    )
 
     meeting_name = _meeting_name(title, summary)
     now = datetime.now(ZoneInfo(settings.document_timezone))
@@ -138,15 +154,20 @@ def send_meeting_documents(
     )
 
     message = EmailMessage()
-    message["Subject"] = f"[{settings.email_brand_name}] 会议资料已生成｜{meeting_name}"
+    status_label = (
+        "纪要补发"
+        if supplement
+        else ("会议转录已生成，纪要待补发" if fallback else "会议资料已生成")
+    )
+    message["Subject"] = f"[{settings.email_brand_name}] {status_label}｜{meeting_name}"
     message["From"] = settings.email_from
     message["To"] = ", ".join(recipients)
     message.set_content(
         f"{meeting_name}\n"
         "会议资料已生成\n\n"
-        f"{settings.email_brand_name} 已完成本次会议的语音转录和 AI 总结。\n"
+        f"{notice}\n"
         f"生成时间：{generated_at}\n\n"
-        "会议转录稿和 AI 总结已随邮件附上。\n\n"
+        "会议资料已随邮件附上。\n\n"
         f"{plain_media}"
         "提示：AI 生成内容可能存在识别或理解偏差，重要结论、姓名、数字和日期请结合会议原始内容核对。\n\n"
         "此邮件由系统自动发送。"
@@ -163,7 +184,7 @@ def send_meeting_documents(
           <p style="margin:10px 0 0;font-size:14px;opacity:.82;">生成时间：{generated_at}</p>
         </div>
         <div style="padding:28px;">
-          <p style="margin:0 0 20px;line-height:1.75;">本次会议的语音转录和 AI 总结已完成，请查看邮件附件。</p>
+          <p style="margin:0 0 20px;line-height:1.75;">{escape(notice)}</p>
           {html_media}
           <p style="margin:0;padding:14px 16px;background:#fff8e6;border-radius:8px;color:#725400;font-size:13px;line-height:1.65;">AI 生成内容可能存在识别或理解偏差，重要结论、姓名、数字和日期请结合会议原始内容核对。</p>
         </div>
@@ -184,7 +205,11 @@ def send_meeting_documents(
         summary.encode("utf-8"),
         maintype="text",
         subtype="markdown",
-        filename=summary_filename,
+        filename=(
+            f"{filename_prefix}｜纪要生成说明_{date_suffix}.md"
+            if fallback
+            else summary_filename
+        ),
     )
 
     # Preserve the existing body transfer encoding, but avoid RFC 2231 filename
@@ -199,6 +224,19 @@ def send_meeting_documents(
                 settings.email_host_user,
                 settings.email_host_password.get_secret_value(),
             )
-        smtp.send_message(message)
+        if state and not state.claim(delivery_key):
+            return
+        try:
+            refused = smtp.send_message(message)
+            if state and refused:
+                raise DeliveryUncertain(
+                    "Some recipients were rejected; do not resend to everyone"
+                )
+        except Exception:
+            if state:
+                state.finish(delivery_key, "uncertain")
+            raise
+        if state:
+            state.finish(delivery_key, "sent")
 
     logger.info("Transcript and summary sent to %s", recipients)
