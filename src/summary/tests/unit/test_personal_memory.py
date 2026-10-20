@@ -139,6 +139,25 @@ def test_summary_preserves_completed_state_and_deduplicates(memory):
     assert memory.items()[0]["status"] == "completed"
 
 
+def test_reminder_meeting_titles_preserve_sources_and_completion(memory):
+    roster = [{"identity": "account-a", "name": "小王", "email": "wang@example.com"}]
+    document = "# 平台资金安全整改｜会议纪要\n\n**小王**\n- [ ] 整理资料"
+    memory.ingest_summary(document, transcript(), "one", roster)
+    task = memory.task_items_by_email("wang@example.com")[0]
+    assert task["meeting_title"] == "平台资金安全整改"
+    done = memory.set_task_completed_by_email("wang@example.com", task["item"], task["seq"], True)
+    assert done["meeting_title"] == task["meeting_title"]
+    memory.ingest_summary(document.replace("平台资金安全整改", "自动分账推进"),
+                          transcript(date="2026-09-21"), "two", roster)
+    task = memory.task_items_by_email("wang@example.com")[0]
+    assert task["status"] == "completed"
+    assert [m["meeting_title"] for m in task["meetings"]] == ["自动分账推进", "平台资金安全整改"]
+    assert memory.task_items_by_email("other@example.com") == []
+    revision = task["seq"]
+    memory.ingest_summary(document, transcript(), "one", roster)
+    assert memory.task_items_by_email("wang@example.com")[0]["seq"] == revision
+
+
 def test_mail_cutover_all_emails_and_old_source_reimport(tmp_path):
     memory = PersonalMemory(tmp_path / "cutover.sqlite3", "team-a")
     roster = [

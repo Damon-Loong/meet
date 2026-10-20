@@ -124,6 +124,9 @@ class PersonalMemory:
                 CREATE TABLE IF NOT EXISTS pm_summary_sources(
                     tenant TEXT, source TEXT, digest TEXT,
                     PRIMARY KEY(tenant,source));
+                CREATE TABLE IF NOT EXISTS pm_meeting_metadata(
+                    tenant TEXT, source TEXT, title TEXT,
+                    PRIMARY KEY(tenant,source));
                 CREATE TABLE IF NOT EXISTS pm_identity_events(
                     seq INTEGER PRIMARY KEY AUTOINCREMENT, tenant TEXT,
                     person TEXT, detail TEXT, created TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -459,7 +462,7 @@ class PersonalMemory:
                     (self.tenant, self.reminder_start),
                 )
             }
-        return sorted(
+        tasks = sorted(
             [
                 item
                 for item in self.items()
@@ -470,6 +473,30 @@ class PersonalMemory:
             key=lambda item: (item["meeting_date"] or "", item["seq"]),
             reverse=True,
         )
+        with self.db() as db:
+            for task in tasks:
+                rows = db.execute(
+                    "SELECT DISTINCT e.source, e.meeting_date, "
+                    "COALESCE(m.title, '') AS title "
+                    "FROM pm_events e LEFT JOIN pm_meeting_metadata m "
+                    "ON m.tenant=e.tenant AND m.source=e.source "
+                    "WHERE e.tenant=? AND e.item=? AND e.person=? "
+                    "AND e.origin='summary' "
+                    "AND e.meeting_date>=? ORDER BY e.meeting_date DESC, e.source",
+                    (self.tenant, task["item"], row[0], self.reminder_start),
+                ).fetchall()
+                task["meetings"] = [
+                    {
+                        "source": r["source"],
+                        "meeting_date": r["meeting_date"],
+                        "meeting_title": r["title"],
+                    }
+                    for r in rows
+                ]
+                task["meeting_title"] = next(
+                    (r["title"] for r in rows if r["source"] == task["source"]), ""
+                )
+        return tasks
 
     def set_task_completed_by_email(self, email, item, revision, completed):
         """Append a status change only when the email owns the current task."""
@@ -605,6 +632,21 @@ class PersonalMemory:
                 "SELECT digest FROM pm_summary_sources WHERE tenant=? AND source=?",
                 (self.tenant, source),
             ).fetchone()
+            # Match the heading used by email delivery; never infer a missing title.
+            title = next(
+                (
+                    line[2:].strip().removesuffix("｜会议总结")
+                    .removesuffix("｜会议纪要").strip()
+                    for line in summary.splitlines() if line.startswith("# ")
+                ),
+                "",
+            )
+            if title and (not prior_source or prior_source[0] == digest):
+                db.execute(
+                    "INSERT INTO pm_meeting_metadata VALUES (?,?,?) "
+                    "ON CONFLICT(tenant,source) DO UPDATE SET title=excluded.title",
+                    (self.tenant, source, title),
+                )
             if prior_source:
                 return (
                     {"status": "already_processed"}

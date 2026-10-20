@@ -19,6 +19,7 @@ from openai.types.audio import Transcription
 from requests import exceptions
 
 from summary.core.analytics import MetadataManager, get_analytics
+from summary.core.asr_prompt import transcription_prompt
 from summary.core.config import get_settings
 from summary.core.docs_service import create_document_in_lasuite_docs
 from summary.core.email_service import send_meeting_documents
@@ -50,7 +51,7 @@ from summary.core.models import (
 )
 from summary.core.meeting_memory import allowed, open_memory, optional_history
 from summary.core.personal_memory import PersonalMemory, personal_context
-from summary.core.summary_quality import ensure_deliverable
+from summary.core.summary_quality import delivery_audit_callback, ensure_deliverable
 from summary.core.prompt import (
     PROMPT_SYSTEM_FINAL_SUMMARY,
     PROMPT_SYSTEM_SEGMENT_EXTRACT,
@@ -120,6 +121,9 @@ def _request_transcription(
     }
     if settings.whisperx_max_completion_tokens:
         transcription_data["max_new_tokens"] = settings.whisperx_max_completion_tokens
+    prompt = transcription_prompt(settings.whisperx_asr_model, settings.whisperx_hotwords)
+    if prompt:
+        transcription_data["prompt"] = prompt
 
     res = requests.post(
         url,
@@ -579,6 +583,9 @@ def summarize_transcription_internals(
             history_context,
             llm_service.call,
             PROMPT_SYSTEM_FINAL_SUMMARY,
+            audit=audit_callback or delivery_audit_callback(
+                settings.meeting_memory_state_file, session_id
+            ),
         )
     except SummaryReviewRequired:
         logger.error("Summary quality gate failed; delivery blocked, review required")

@@ -6,7 +6,31 @@ from unittest.mock import Mock
 
 import pytest
 
-from summary.core.summary_quality import SummaryReviewRequired, ensure_deliverable
+from summary.core.summary_quality import (
+    SummaryReviewRequired,
+    delivery_audit_callback,
+    ensure_deliverable,
+)
+
+
+def test_delivery_audit_is_private_and_keeps_each_run(tmp_path):
+    for _ in range(2):
+        save = delivery_audit_callback(tmp_path / "state.sqlite3", "../../session")
+        save({"attempt": 0, "blocking": ["测试"], "draft": "私有草稿"})
+    paths = list((tmp_path / "delivery-audit").glob("*/review-0.json"))
+    assert len(paths) == 2
+    for path in paths:
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert json.loads(path.read_text())["draft"] == "私有草稿"
+
+
+def test_audit_failure_does_not_stop_delivery(tmp_path):
+    (tmp_path / "delivery-audit").write_text("not a directory")
+    save = delivery_audit_callback(tmp_path / "state.sqlite3", "session")
+    result = ensure_deliverable(
+        draft(), "原文", "", Mock(return_value=GOOD), "规则", audit=save
+    )
+    assert "仅为预计" in result
 
 
 def draft(detail="仅为预计，尚未确定。"):
@@ -91,6 +115,37 @@ def test_major_error_not_cleared_by_reviewer_outage():
     call = Mock(side_effect=[CRITICAL, draft(), TimeoutError()])
     with pytest.raises(SummaryReviewRequired):
         ensure_deliverable(draft(), "原文", "", call, "规则")
+
+
+@pytest.mark.parametrize(
+    "detail", ["此项由小王负责。", "方案交由Marsh确认。", "下一步请小王确认。"]
+)
+def test_complete_assignment_is_not_a_fragment(detail):
+    result = ensure_deliverable(
+        draft(detail), "原文", "", Mock(return_value=GOOD), "规则"
+    )
+    assert detail in result
+
+
+def test_mixed_parentheses_do_not_trigger_repair():
+    call = Mock(return_value=GOOD)
+    result = ensure_deliverable(
+        draft("核对资料（包含附件)。"), "原文", "", call, "规则"
+    )
+    assert "核对资料" in result
+    assert call.call_count == 1
+
+
+def test_punctuation_only_does_not_block_after_failed_repair():
+    call = Mock(side_effect=[GOOD, TimeoutError()])
+    result = ensure_deliverable(draft("核对资料（包含附件。"), "原文", "", call, "规则")
+    assert "核对资料" in result
+
+
+def test_punctuation_does_not_hide_critical_fact_error():
+    call = Mock(side_effect=[CRITICAL, draft("核对资料（包含附件。"), CRITICAL])
+    with pytest.raises(SummaryReviewRequired):
+        ensure_deliverable(draft("核对资料（包含附件。"), "原文", "", call, "规则")
 
 
 def test_malformed_draft_can_be_repaired_once():

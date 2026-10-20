@@ -54,7 +54,7 @@ def isolate_renderer_tests_from_semantic_review(monkeypatch):
     """The delivery gate has separate tests; these cover rendering and wiring."""
     monkeypatch.setattr(
         celery_worker, "ensure_deliverable",
-        lambda raw, transcript, *_args: render_concise_summary(
+        lambda raw, transcript, *_args, **_kwargs: render_concise_summary(
             ConciseSummary.model_validate_json(raw), transcript
         ),
     )

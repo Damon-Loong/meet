@@ -10,6 +10,7 @@ from pydantic import (
     ConfigDict,
     Field,
     SecretStr,
+    StringConstraints,
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -93,6 +94,17 @@ class Settings(BaseSettings):
     whisperx_asr_model: str = "whisper-1"
     whisperx_response_format: str = "diarized_json"
     whisperx_max_completion_tokens: int | None = 65536
+    # JSON array via WHISPERX_HOTWORDS; empty array disables hints.
+    # Only user-confirmed spellings, never auto-learn from unverified transcripts.
+    whisperx_hotwords: tuple[
+        Annotated[
+            str,
+            StringConstraints(
+                strip_whitespace=True, min_length=1, max_length=64,
+                pattern=r"^[^\r\n]+$",
+            ),
+        ], ...
+    ] = Field(default=("见福",), max_length=100)
     # ISO 639-1 language code (e.g., "en", "fr", "es")
     whisperx_default_language: Optional[str] = None
     whisperx_allowed_languages: Set[str] = {"en", "fr", "de", "nl", "zh"}
