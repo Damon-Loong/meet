@@ -6,6 +6,7 @@ import smtplib
 from datetime import datetime
 from email.message import EmailMessage
 from html import escape
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -72,6 +73,9 @@ def send_meeting_documents(
     webhook_api_key: str | None = None,
     delivery_key: str | None = None,
     supplement: bool = False,
+    # 2026-10-20，wyy 新增：个人任务交付扩展，默认参数保持旧邮件行为。
+    task_result_text: str | None = None,
+    result_attachments: list[dict] | None = None,
 ) -> None:
     """Send one message to all meeting participants."""
     recipients = list(dict.fromkeys(email.strip().lower() for email in recipients))
@@ -79,6 +83,13 @@ def send_meeting_documents(
     if not settings.email_delivery_enabled:
         logger.info("Email delivery is disabled; skipping message to %s", recipients)
         return
+
+    if task_result_text is not None and (len(recipients) != 1 or not delivery_key):
+        raise ValueError("Personal results require one recipient and a delivery key")
+    if result_attachments and task_result_text is None:
+        raise ValueError("Attachments require a personal result")
+    if task_result_text is not None and len(task_result_text) > 100000:
+        raise ValueError("Personal result is too large")
 
     state = DeliveryState(settings.meeting_memory_state_file) if delivery_key else None
     if state and state.status(delivery_key) == "sent":
@@ -162,7 +173,10 @@ def send_meeting_documents(
     message["Subject"] = f"[{settings.email_brand_name}] {status_label}｜{meeting_name}"
     message["From"] = settings.email_from
     message["To"] = ", ".join(recipients)
+    # 2026-10-20，wyy 新增：仅个人结果邮件显示执行说明。
+    task_notice = "本人任务结果及生成文件见附件。\n\n" if task_result_text is not None else ""
     message.set_content(
+        task_notice +
         f"{meeting_name}\n"
         "会议资料已生成\n\n"
         f"{notice}\n"
@@ -185,6 +199,7 @@ def send_meeting_documents(
         </div>
         <div style="padding:28px;">
           <p style="margin:0 0 20px;line-height:1.75;">{escape(notice)}</p>
+          {'<p>本人任务结果及生成文件见附件。</p>' if task_result_text is not None else ''}
           {html_media}
           <p style="margin:0;padding:14px 16px;background:#fff8e6;border-radius:8px;color:#725400;font-size:13px;line-height:1.65;">AI 生成内容可能存在识别或理解偏差，重要结论、姓名、数字和日期请结合会议原始内容核对。</p>
         </div>
@@ -211,6 +226,16 @@ def send_meeting_documents(
             else summary_filename
         ),
     )
+
+    # 2026-10-20，wyy 新增：附件清单已由可信 worker 验证，沿用原 SMTP 检查点。
+    if task_result_text is not None:
+        message.add_attachment(task_result_text.encode("utf-8"), maintype="text",
+            subtype="plain", filename="会后任务结果.txt")
+        for artifact in result_attachments or []:
+            path = Path(artifact["path"])
+            major, minor = artifact["mime"].split("/", 1)
+            message.add_attachment(path.read_bytes(), maintype=major, subtype=minor,
+                filename=_safe_filename(path.stem) + path.suffix.lower())
 
     # Preserve the existing body transfer encoding, but avoid RFC 2231 filename
     # continuations in serialized headers. Stay within the RFC 5322 hard limit.

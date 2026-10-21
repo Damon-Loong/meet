@@ -1,0 +1,13 @@
+# 2026-10-20，wyy 新增：可信会后任务调度器，仅增加启动容器所需 Docker 客户端。
+# 应用源码来自同一 main 构建的 summary 镜像，不复制线上旧容器代码。
+ARG SUMMARY_IMAGE=lasuite-meet/summary:wyy-postmeeting-20261020
+# Docker CLI 的构建层独立于业务源码，修复 main 后无需重复下载客户端。
+FROM python:3.13-alpine3.24 AS docker-client
+ARG ALPINE_MIRROR=https://dl-cdn.alpinelinux.org/alpine
+RUN sed -i "s|https://dl-cdn.alpinelinux.org/alpine|${ALPINE_MIRROR}|g" /etc/apk/repositories \
+    && apk add --no-cache docker-cli
+FROM ${SUMMARY_IMAGE}
+USER root
+COPY --from=docker-client /usr/bin/docker /usr/bin/docker
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+CMD ["python", "-B", "-m", "summary.core.postmeeting_tasks"]

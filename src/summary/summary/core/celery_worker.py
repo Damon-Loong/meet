@@ -1040,7 +1040,23 @@ def summarize_v2_task(
     job_id = self.request.id
     file_service.store_summary(summary=summary, job_id=job_id)
 
-    if payload.recipient_emails and payload.push_to_docs_config:
+    # 2026-10-20，wyy 新增：只对可用纪要入队，保留转录先发/纪要补发流程。
+    postmeeting_queued = False
+    if (
+        settings.postmeeting_agent_enabled
+        and mail_enabled
+        and not is_unavailable(summary)
+    ):
+        try:
+            from summary.core.postmeeting_tasks import enqueue  # noqa: PLC0415
+            postmeeting_queued = enqueue(settings, payload, summary, delivery_key)
+        except Exception:
+            logger.error("Postmeeting handoff failed; preserving original email path")
+    if (
+        payload.recipient_emails
+        and payload.push_to_docs_config
+        and not postmeeting_queued
+    ):
         send_meeting_documents(
             recipients=[str(email) for email in payload.recipient_emails],
             title=payload.push_to_docs_config.title,
@@ -1086,6 +1102,7 @@ def summarize_v2_task(
         and payload.recipient_emails
         and payload.push_to_docs_config
         and not is_unavailable(summary)
+        and not postmeeting_queued
     ):
         enqueue_personal_memory(
             payload.tenant_id, payload.content, source, payload.participants, summary
@@ -1125,15 +1142,26 @@ def recover_summary_mail_task(self, payload: dict, original_job: str):
         summary = state.remember(key, format_summary_document(
             transcript=payload.content, summary=summary, title=payload.push_to_docs_config.title,
         ))
+    # 2026-10-20，wyy 新增：补发纪要同样接入；已有初次转录邮件不重发。
+    postmeeting_queued = False
+    if settings.postmeeting_agent_enabled:
+        try:
+            from summary.core.postmeeting_tasks import enqueue  # noqa: PLC0415
+            postmeeting_queued = enqueue(
+                settings, payload, summary, key, supplement=True
+            )
+        except Exception:
+            logger.error("Postmeeting supplement handoff failed; using original route")
     tenant = settings.get_authorized_tenant(tenant_id=payload.tenant_id)
     try:
-        send_meeting_documents(
-            recipients=[str(email) for email in payload.recipient_emails],
-            title=payload.push_to_docs_config.title, transcript=payload.content, summary=summary,
-            media_recording_id=payload.media_recording_id,
-            webhook_url=str(tenant.webhook_url), webhook_api_key=tenant.webhook_api_key.get_secret_value(),
-            delivery_key=key, supplement=True,
-        )
+        if not postmeeting_queued:
+            send_meeting_documents(
+                recipients=[str(email) for email in payload.recipient_emails],
+                title=payload.push_to_docs_config.title, transcript=payload.content, summary=summary,
+                media_recording_id=payload.media_recording_id,
+                webhook_url=str(tenant.webhook_url), webhook_api_key=tenant.webhook_api_key.get_secret_value(),
+                delivery_key=key, supplement=True,
+            )
         file_service.store_summary(summary=summary, job_id=original_job)
         call_webhook_v2_task.apply_async(args=[SummarizeWebhookSuccessPayload(
             job_id=original_job, summary_data_url=file_service.get_summary_signed_url(original_job),
@@ -1142,9 +1170,13 @@ def recover_summary_mail_task(self, payload: dict, original_job: str):
         raise
     except Exception as exc:
         raise self.retry(exc=exc, countdown=300)
-    enqueue_personal_memory(payload.tenant_id, payload.content,
-        str(payload.media_recording_id or original_job), payload.participants, summary)
-    return {"status": "supplement_sent", "job": original_job}
+    if not postmeeting_queued:
+        enqueue_personal_memory(payload.tenant_id, payload.content,
+            str(payload.media_recording_id or original_job), payload.participants, summary)
+    return {
+        "status": "supplement_queued" if postmeeting_queued else "supplement_sent",
+        "job": original_job,
+    }
 
 
 @signals.task_prerun.connect(sender=summarize_v2_task)

@@ -1,0 +1,34 @@
+# 2026-10-20，wyy 新增：会后任务可选部署覆盖，源文件跟随 main/GitHub 审核。
+# 与 /data/meet-deploy/compose.yaml 合并；本文件不会被现有 compose 自动加载。
+# 使用与线上相同项目名及 --project-directory /data/meet-deploy，详见 README。
+services:
+  summary-summarize:
+    image: lasuite-meet/summary:wyy-postmeeting-20261020
+    env_file:
+      - ${MEET_DEPLOY_ROOT:-/data/meet-deploy}/env.d/postmeeting-common
+    volumes:
+      - ${MEET_DEPLOY_ROOT:-/data/meet-deploy}/postmeeting-agent/state:/var/lib/postmeeting
+
+  postmeeting-worker:
+    image: lasuite-meet/postmeeting-worker:wyy-20261020
+    profiles: [postmeeting]
+    command: [python, -B, -m, summary.core.postmeeting_tasks]
+    env_file:
+      - ${MEET_DEPLOY_ROOT:-/data/meet-deploy}/env.d/summary
+      - ${MEET_DEPLOY_ROOT:-/data/meet-deploy}/env.d/email
+      - ${MEET_DEPLOY_ROOT:-/data/meet-deploy}/env.d/postmeeting-common
+      - ${MEET_DEPLOY_ROOT:-/data/meet-deploy}/env.d/postmeeting-agent
+    environment:
+      # 保持已交付纪要才导入记忆的现有行为；实际记忆任务仍由原 Celery 执行。
+      PERSONAL_MEMORY_ENABLED: "true"
+      MEETING_MEMORY_TENANT_ID: meet
+      MEETING_MEMORY_STATE_FILE: /var/lib/meet-memory/state.sqlite3
+      MEETING_MEMORY_CONFIG_FILE: /run/secrets/meet-knowledge.json
+    volumes:
+      - ${MEET_DEPLOY_ROOT:-/data/meet-deploy}/postmeeting-agent/state:/var/lib/postmeeting
+      - ${MEET_DEPLOY_ROOT:-/data/meet-deploy}/meet-memory/state:/var/lib/meet-memory
+      - ${MEET_DEPLOY_ROOT:-/data/meet-deploy}/meet-memory/meet-knowledge.json:/run/secrets/meet-knowledge.json:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on: [redis]
+    restart: "no"
+    security_opt: [no-new-privileges:true]

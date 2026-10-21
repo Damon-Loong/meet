@@ -1,0 +1,16 @@
+# 2026-10-20，wyy 新增：会后自动任务的官方 dsh 与 Office 工具隔离环境。
+FROM python:3.12-slim-bookworm
+ARG DEBIAN_MIRROR=https://deb.debian.org
+ARG PIP_INDEX_URL=https://pypi.org/simple
+RUN sed -i "s|http://deb.debian.org|${DEBIAN_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+    && apt-get -o Acquire::Retries=1 -o Acquire::https::Timeout=30 update \
+    && apt-get -o Acquire::Retries=1 -o Acquire::https::Timeout=30 install -y --no-install-recommends \
+    bash libreoffice-impress libreoffice-calc poppler-utils fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" deepseek-harness-sdk==0.2.1rc2 \
+    openpyxl==3.1.5 python-pptx==1.0.2 pypdf==6.21.1
+COPY runner.py /opt/postmeeting/runner.py
+USER 10001:10001
+WORKDIR /output
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 HOME=/tmp
+ENTRYPOINT ["python", "-B", "/opt/postmeeting/runner.py"]

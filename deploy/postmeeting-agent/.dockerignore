@@ -1,0 +1,5 @@
+# 2026-10-20，wyy 新增：会后任务构建只包含构建配方与 SDK 入口，避免携带配置或状态。
+*
+!Dockerfile.runner
+!Dockerfile.worker
+!runner.py

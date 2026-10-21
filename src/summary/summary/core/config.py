@@ -48,6 +48,22 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", frozen=True)
 
     app_name: str = "summary"
+
+    # 2026-10-20，wyy 新增：会后按用户自动执行，默认关闭且不初始化执行器。
+    postmeeting_agent_enabled: bool = False
+    # 2026-10-20，wyy 新增：可选试用范围；非空时只接管收件人全部在名单内的会议。
+    postmeeting_allowed_recipient_emails: list[str] = Field(default_factory=list)
+    postmeeting_state_dir: str = "/var/lib/postmeeting"
+    postmeeting_host_state_dir: str = "/data/meet-deploy/postmeeting-agent/state"
+    postmeeting_runner_image: str = (
+        "lasuite-meet/postmeeting-runner:wyy-20261020"
+    )
+    postmeeting_runner_network: str = "meet-postmeeting-egress"
+    postmeeting_task_timeout_seconds: int = Field(default=300, ge=10, le=1800)
+    postmeeting_batch_timeout_seconds: int = Field(default=900, ge=30, le=3600)
+    postmeeting_max_output_tokens: int = Field(default=8192, ge=512, le=32768)
+    postmeeting_attachment_limit_bytes: int = Field(default=18874368, ge=1024, le=18874368)
+
     app_api_v2_str: str = "/api/v2"
 
     # Authorized Tenants
