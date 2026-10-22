@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     postmeeting_runner_network: str = "meet-postmeeting-egress"
     postmeeting_task_timeout_seconds: int = Field(default=300, ge=10, le=1800)
     postmeeting_batch_timeout_seconds: int = Field(default=900, ge=30, le=3600)
-    postmeeting_max_output_tokens: int = Field(default=8192, ge=512, le=32768)
+    postmeeting_max_output_tokens: int = Field(default=32768, ge=512, le=32768)
     postmeeting_attachment_limit_bytes: int = Field(default=18874368, ge=1024, le=18874368)
 
     app_api_v2_str: str = "/api/v2"

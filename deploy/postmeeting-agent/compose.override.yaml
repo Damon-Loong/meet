@@ -19,6 +19,8 @@ services:
       - ${MEET_DEPLOY_ROOT:-/data/meet-deploy}/env.d/postmeeting-common
       - ${MEET_DEPLOY_ROOT:-/data/meet-deploy}/env.d/postmeeting-agent
     environment:
+      # Override the older 8192-token env_file value for post-meeting execution.
+      POSTMEETING_MAX_OUTPUT_TOKENS: "32768"
       # 保持已交付纪要才导入记忆的现有行为；实际记忆任务仍由原 Celery 执行。
       PERSONAL_MEMORY_ENABLED: "true"
       MEETING_MEMORY_TENANT_ID: meet
