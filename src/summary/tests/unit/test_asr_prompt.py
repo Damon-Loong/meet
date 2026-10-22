@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
-from summary.core.asr_prompt import MOSS_TRANSCRIPTION_PROMPT, transcription_prompt
+from summary.core.asr_prompt import transcription_prompt
 from summary.core.config import get_settings
 
 
@@ -14,9 +14,9 @@ from summary.core.config import get_settings
     "model", ["moss-transcribe-diarize", "OpenMOSS-Team/MOSS-Transcribe-Diarize"]
 )
 def test_prompt_preserves_format_and_correct_spelling(model):
-    """Include only confirmed positive spellings and deduplicate terms."""
+    """Configured vocabulary cannot re-enable the paused hotword feature."""
     result = transcription_prompt(model, ("见福", "见福", " AfB "))
-    assert result == MOSS_TRANSCRIPTION_PROMPT + "热词提示：见福, AfB"
+    assert result == ""
     assert "建福" not in result
 
 
@@ -69,5 +69,5 @@ def test_request_passes_prompt_without_changing_audio(monkeypatch, words):
     assert kwargs["data"].get("prompt", "") == transcription_prompt(
         "moss-transcribe-diarize", words
     )
-    assert ("prompt" in kwargs["data"]) == bool(words)
+    assert "prompt" not in kwargs["data"]
     assert result.text == "见福"

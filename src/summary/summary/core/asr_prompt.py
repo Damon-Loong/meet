@@ -8,10 +8,10 @@ MOSS_TRANSCRIPTION_PROMPT = (
 
 
 def transcription_prompt(model: str, hotwords: tuple[str, ...]) -> str:
-    """Keep other recognizers unchanged and preserve MOSS output instructions."""
-    if model.lower().rsplit("/", 1)[-1] != "moss-transcribe-diarize":
-        return ""
-    words = list(dict.fromkeys(word.strip() for word in hotwords if word.strip()))
-    if not words:
-        return ""
-    return MOSS_TRANSCRIPTION_PROMPT + "热词提示：" + ", ".join(words)
+    """Use the recognizer's default prompt until hotword regression is resolved.
+
+    The full vocabulary reproducibly caused runaway repetition on a 48-second
+    recording. Ignore configured vocabulary too, so stale deployment settings
+    cannot silently re-enable the affected request path.
+    """
+    return ""
