@@ -71,6 +71,7 @@ from summary.core.shared_models import (
 from summary.core.summary_document import (
     SUMMARY_RESPONSE_FORMAT,
 )
+from summary.core.transcript_correction import correct_transcript_spelling
 from summary.core.transcript_formatter import TranscriptFormatter
 from summary.core.user_assign import (
     _build_participant_timelines,
@@ -855,6 +856,39 @@ def process_audio_transcribe_v2_task(
         recording_metadata=payload.metadata,
         participant_metadata=participant_metadata,
     )
+
+    if settings.transcript_correction_enabled and settings.transcript_correction_terms:
+        correction_observability = None
+        try:
+            user_has_tracing_consent = analytics.is_feature_enabled(
+                "summary-tracing-consent", distinct_id=payload.user_sub
+            )
+            correction_observability = LLMObservability(
+                user_has_tracing_consent=user_has_tracing_consent,
+                session_id=job_id,
+                user_id=payload.user_sub,
+            )
+            correction_service = LLMService(llm_observability=correction_observability)
+            content = correct_transcript_spelling(
+                content,
+                settings.transcript_correction_terms,
+                correction_service.call,
+                max_chars=settings.transcript_correction_max_chars,
+            )
+        except Exception:
+            logger.warning(
+                "Transcript correction unavailable; preserving source transcript",
+                exc_info=True,
+            )
+        finally:
+            if correction_observability is not None:
+                try:
+                    correction_observability.flush()
+                except Exception:
+                    logger.warning(
+                        "Unable to flush transcript correction telemetry",
+                        exc_info=True,
+                    )
 
     should_push_to_docs = _should_push_to_docs(payload)
     # We do it synchronously for now

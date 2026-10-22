@@ -121,6 +121,47 @@ class Settings(BaseSettings):
             ),
         ], ...
     ] = Field(default=("见福",), max_length=100)
+    # Confirmed canonical spellings for the post-ASR text correction model. These
+    # terms are deliberately separate from ASR hints, which remain disabled for
+    # MOSS because hints caused unstable repeated output in production samples.
+    transcript_correction_terms: tuple[
+        Annotated[
+            str,
+            StringConstraints(
+                strip_whitespace=True,
+                min_length=1,
+                max_length=64,
+                pattern=r"^[^\r\n]+$",
+            ),
+        ],
+        ...,
+    ] = Field(
+        default=(
+            "见福",
+            "魏嘉",
+            "AFB",
+            "上海希荧",
+            "无锡灵泛",
+            "张利总",
+            "石雪珂",
+            "弘富源",
+            "中电万维",
+            "劣后资金",
+            "福建见福",
+            "厦门见福",
+            "见福便利店",
+            "希荧",
+            "希荧公司",
+            "灵泛",
+            "灵泛公司",
+            "张利",
+            "雪珂",
+        ),
+        max_length=100,
+    )
+    # Correction is advisory and never blocks transcript delivery.
+    transcript_correction_enabled: bool = False
+    transcript_correction_max_chars: int = Field(default=20000, ge=1000, le=50000)
     # ISO 639-1 language code (e.g., "en", "fr", "es")
     whisperx_default_language: Optional[str] = None
     whisperx_allowed_languages: Set[str] = {"en", "fr", "de", "nl", "zh"}
