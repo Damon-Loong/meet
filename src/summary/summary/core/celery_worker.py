@@ -74,6 +74,11 @@ from summary.core.shared_models import (
 from summary.core.summary_document import (
     SUMMARY_RESPONSE_FORMAT,
 )
+from summary.core.transcript_content import (
+    has_spoken_text,
+    is_refusal_only,
+    strip_timestamp_labels,
+)
 from summary.core.transcript_correction import correct_transcript_spelling
 from summary.core.transcript_formatter import TranscriptFormatter
 from summary.core.user_assign import (
@@ -834,6 +839,29 @@ def process_audio_transcribe_v2_task(
         )
         return failure_payload.model_dump()
 
+    # Labels are protocol metadata, not speech. Decide before document headings,
+    # correction, summary, archives or email can make an empty meeting look useful.
+    transcription_res = transcription_res.model_copy(
+        update={
+            "segments": tuple(
+                segment.model_copy(update={"text": strip_timestamp_labels(segment.text)})
+                for segment in transcription_res.segments
+                if has_spoken_text(segment.text)
+            )
+        }
+    )
+    if not transcription_res.segments or is_refusal_only(
+        [segment.text for segment in transcription_res.segments]
+    ):
+        transcription_res = transcription_res.model_copy(
+            update={"segments": (), "word_segments": ()}
+        )
+        logger.info(
+            "Empty or refusal-only transcript; skipping downstream delivery | job=%s",
+            job_id,
+        )
+        return _complete_transcription(job_id, transcription_res, payload.tenant_id)
+
     # Assign speakers and rewrite transcription/diarization output
     if (
         not already_mapped
@@ -940,20 +968,23 @@ def process_audio_transcribe_v2_task(
             ],
         )
 
-    file_service.store_transcript(
-        transcript=transcription_res,
-        job_id=job_id,
-    )
     enqueue_meeting_archive(
         payload.tenant_id, content, str(payload.media_recording_id or job_id)
     )
+
+    return _complete_transcription(job_id, transcription_res, payload.tenant_id)
+
+
+def _complete_transcription(job_id, transcription_res, tenant_id):
+    """Store the result and report normal completion, including empty meetings."""
+    file_service.store_transcript(transcript=transcription_res, job_id=job_id)
 
     success_payload = TranscribeWebhookSuccessPayload(
         job_id=job_id,
         transcription_data_url=file_service.get_transcript_signed_url(job_id),
     )
     call_webhook_v2_task.apply_async(
-        args=[success_payload.model_dump(), payload.tenant_id]
+        args=[success_payload.model_dump(), tenant_id]
     )
     metadata_manager.capture(job_id, settings.posthog_transcript_success)
 

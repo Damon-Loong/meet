@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from summary.core.config import get_settings
 from summary.core.locales import LocaleStrings
+from summary.core.transcript_content import strip_timestamp_labels
 
 settings = get_settings()
 
@@ -80,7 +81,7 @@ class TranscriptFormatter:
         """Format every segment on its own timestamped line."""
         lines = []
         for segment in segments:
-            text = segment.get("text", "").strip()
+            text = strip_timestamp_labels(segment.get("text", ""))
             raw_speaker = segment.get("speaker")
             prefix = re.match(r"^\s*\[([^\]]+)\]\s*", text)
             if prefix and not raw_speaker:

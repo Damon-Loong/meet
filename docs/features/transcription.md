@@ -17,6 +17,17 @@ context/output budget or the recording retention policy.
 
 ## Self-hosted MOSS request defaults (2026-10-24)
 
+Before formatting the document, the transcription task strips bracketed timestamp
+labels and discards segments containing only speaker/timestamp labels. If no
+spoken text remains, it stores an empty transcription and reports successful
+completion to Meet, but skips speaker mapping, text correction, document creation,
+summary generation, content archiving and email delivery. Original recordings
+remain available in the backend. This is deterministic label cleanup, not a VAD
+gate. The observed MOSS output `I'm sorry, I can't assist with that request.`
+(also with `but` after `sorry`) follows the same empty-meeting path only when
+it constitutes the entire remaining body. Mixed real speech and quoted refusals
+are not discarded; unrelated English text is not blacklisted.
+
 For `moss-transcribe-diarize` (including a namespaced model name), the shared
 request path sends `repetition_penalty=1.1` and omits `max_new_tokens`. Configured
 `WHISPERX_MAX_COMPLETION_TOKENS` is retained for other providers and is not sent
