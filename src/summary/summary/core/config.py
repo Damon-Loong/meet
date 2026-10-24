@@ -109,6 +109,7 @@ class Settings(BaseSettings):
     whisperx_base_url: Url = "https://api.openai.com/v1"
     whisperx_asr_model: str = "whisper-1"
     whisperx_response_format: str = "diarized_json"
+    # Other providers may pin a budget; MOSS uses its duration-scaled server default.
     whisperx_max_completion_tokens: int | None = 65536
     # JSON array via WHISPERX_HOTWORDS; empty array disables hints.
     # Only user-confirmed spellings, never auto-learn from unverified transcripts.

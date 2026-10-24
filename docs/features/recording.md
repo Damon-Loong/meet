@@ -86,6 +86,25 @@ sequenceDiagram
 
 ## Configuration Options
 
+### Unlimited self-hosted audio and video recordings
+
+Remove `RECORDING_MAX_DURATION=7200000` from the backend environment rather
+than replacing it with an empty string or the text `None`; the unset default
+is unlimited. Also leave the same variable unset in the Summary environment.
+Set the following in the LiveKit Egress configuration for both audio and video:
+
+```yaml
+session_limits:
+  file_output_max_duration: 0s
+```
+
+Egress only starts its duration timer for a positive duration. After checking
+there are no active recordings, recreate the backend, backend Celery workers
+and Egress service to reload these settings. No application image rebuild or
+frontend code change is needed. Summary still splits long audio into roughly
+30-minute chunks and processes them sequentially; retention and delivery are
+unchanged.
+
 | Option                                  | Type        | Default                                                                                                                                                            | Description                                                                                                                                                                                                                                                                                        |
 | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **RECORDING_ENABLE**                    | Boolean     | `False`                                                                                                                                                            | Enable or disable the room recording feature.                                                                                                                                                                                                                                                      |

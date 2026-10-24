@@ -6,8 +6,21 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
-from summary.core.asr_prompt import transcription_prompt
+from summary.core.asr_prompt import transcription_generation_params, transcription_prompt
 from summary.core.config import get_settings
+
+
+@pytest.mark.parametrize(
+    "model,budget,expected",
+    [
+        ("moss-transcribe-diarize", 65536, {"repetition_penalty": 1.1}),
+        ("OpenMOSS-Team/MOSS-Transcribe-Diarize", None, {"repetition_penalty": 1.1}),
+        ("whisper-1", 65536, {"max_new_tokens": 65536}),
+        ("whisper-1", None, {}),
+    ],
+)
+def test_generation_params_keep_provider_budgets(model, budget, expected):
+    assert transcription_generation_params(model, budget) == expected
 
 
 @pytest.mark.parametrize(
@@ -81,4 +94,7 @@ def test_request_passes_prompt_without_changing_audio(monkeypatch, words):
         "moss-transcribe-diarize", words
     )
     assert "prompt" not in kwargs["data"]
+    assert "max_new_tokens" not in kwargs["data"]
+    assert "max_completion_tokens" not in kwargs["data"]
+    assert kwargs["data"]["repetition_penalty"] == 1.1
     assert result.text == "见福"

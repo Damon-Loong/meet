@@ -19,7 +19,10 @@ from openai.types.audio import Transcription
 from requests import exceptions
 
 from summary.core.analytics import MetadataManager, get_analytics
-from summary.core.asr_prompt import transcription_prompt
+from summary.core.asr_prompt import (
+    transcription_generation_params,
+    transcription_prompt,
+)
 from summary.core.config import get_settings
 from summary.core.docs_service import create_document_in_lasuite_docs
 from summary.core.delivery_state import DeliveryState, DeliveryUncertain
@@ -122,8 +125,11 @@ def _request_transcription(
         "timestamp_granularities": ["word", "segment"],
         "response_format": settings.whisperx_response_format,
     }
-    if settings.whisperx_max_completion_tokens:
-        transcription_data["max_new_tokens"] = settings.whisperx_max_completion_tokens
+    transcription_data.update(
+        transcription_generation_params(
+            settings.whisperx_asr_model, settings.whisperx_max_completion_tokens
+        )
+    )
     prompt = transcription_prompt(settings.whisperx_asr_model, settings.whisperx_hotwords)
     if prompt:
         transcription_data["prompt"] = prompt

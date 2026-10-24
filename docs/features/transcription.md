@@ -1,5 +1,43 @@
 # Transcription
 
+## Self-hosted recording duration (2026-10-24)
+
+The self-hosted deployment has no two-hour meeting recording/transcription cap.
+Leave `RECORDING_MAX_DURATION` unset in both backend and Summary environments
+(both default to `None`), and set LiveKit Egress
+`session_limits.file_output_max_duration: 0s`. Do not pass the backend's old
+millisecond value to Summary, where a configured duration is measured in seconds.
+The backend already publishes `max_duration: null` and the frontend already
+supports this unlimited state; no frontend change is required.
+
+Long recordings continue through the existing approximately 30-minute,
+voice-activity-aware sequential chunking and whole-meeting timestamp merge.
+This removes the total recording duration cap, not the model's per-request
+context/output budget or the recording retention policy.
+
+## Self-hosted MOSS request defaults (2026-10-24)
+
+For `moss-transcribe-diarize` (including a namespaced model name), the shared
+request path sends `repetition_penalty=1.1` and omits `max_new_tokens`. Configured
+`WHISPERX_MAX_COMPLETION_TOKENS` is retained for other providers and is not sent
+to MOSS. Hotword prompts remain disabled.
+
+The model server must also omit `--asr.factory.max_new_tokens`; a fixed stage
+budget disables SGLang-Omni's duration-scaled default. The current upstream
+default is approximately `max(512, 10 * audio_seconds)`, bounded by available
+context. This remains a finite output budget, not unlimited generation.
+
+On the retained 29-minute problematic sample, penalty 1.0/1.05 returned only
+speaker markers; 1.1 recovered 1,540 characters of speech in 61 seconds. Empty
+speaker markers remained and are omitted by the document formatter. A normal
+30-minute sample and a 26-minute sample with a quiet tail were compared at
+1.0/1.1: neither hit the automatic output budget. At 1.1 their output lengths
+were 8,344/6,307 tokens, and the final spoken lines remained present. Wording
+and diarization boundaries can still differ; this is sample validation, not a
+guarantee of recognition accuracy for every meeting.
+
+Reference: [SGLang-Omni MOSS cookbook](https://github.com/sgl-project/sglang-omni/blob/main/docs/cookbook/moss_transcribe_diarize.md).
+
 La Suite Meet provides a room transcription capability, currently available in beta. This feature is under active development, with ongoing enhancements planned.
 
 The transcription feature enables users to record room sessions. Upon completion of a recording, the room owner receives a notification containing a link to LaSuite Docs, where the transcribed meeting content can be accessed.
@@ -67,7 +105,7 @@ sequenceDiagram
 | app_name                 | String    | `"app"`                                                               | Name of the application/service.                                                                                                                                        |
 | app_api_v1_str           | String    | `"/api/v1"`                                                           | Base path for the API endpoints.                                                                                                                                        |
 | app_api_token            | Secret    | —                                                                     | API token for authenticating requests.                                                                                                                                  |
-| recording_max_duration   | Integer   | `None`                                                                | Maximum duration of audio recordings in milliseconds. Set to `None` for unlimited. Audio recordings longer than the configured limit will be ignored and not processed. |
+| recording_max_duration   | Integer   | `None`                                                                | Maximum duration of audio recordings in seconds. Leave unset for unlimited. Audio recordings longer than the configured limit will be ignored and not processed. |
 | celery_broker_url        | String    | `"redis://redis/0"`                                                   | Celery broker URL.                                                                                                                                                      |
 | celery_result_backend    | String    | `"redis://redis/0"`                                                   | Celery result backend URL.                                                                                                                                              |
 | celery_max_retries       | Integer   | `1`                                                                   | Maximum number of retries for Celery tasks.                                                                                                                             |
