@@ -3,7 +3,7 @@
 # 使用与线上相同项目名及 --project-directory /data/meet-deploy，详见 README。
 services:
   summary-summarize:
-    image: lasuite-meet/summary:wyy-postmeeting-20261020
+    image: lasuite-meet/summary:reminder-owner-20261103
     env_file:
       - ${MEET_DEPLOY_ROOT:-/data/meet-deploy}/env.d/postmeeting-common
     volumes:

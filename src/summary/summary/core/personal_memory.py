@@ -238,10 +238,12 @@ class PersonalMemory:
                     "INSERT OR IGNORE INTO pm_accounts VALUES (?,?,?)",
                     (self.tenant, account, person),
                 )
-                db.execute(
-                    "INSERT OR IGNORE INTO pm_aliases VALUES (?,?,?)",
-                    (self.tenant, name, person),
-                )
+                # Never learn another known person's canonical name as an alias.
+                if not named or named[0] == person:
+                    db.execute(
+                        "INSERT OR IGNORE INTO pm_aliases VALUES (?,?,?)",
+                        (self.tenant, name, person),
+                    )
                 if email:
                     db.execute(
                         "INSERT OR IGNORE INTO pm_emails VALUES (?,?,?)",
@@ -570,8 +572,12 @@ class PersonalMemory:
         if self.reminder_start and date[:10] < self.reminder_start:
             return {"status": "skipped", "reason": "before_reminder_start"}
         people = self.resolve(participants, transcript)
+        profiles = self.people()
         owner = None
         entries = []
+        skipped = 0
+        skipped_owners = set()
+        label = ""
         # Preserve wrapped checklist text instead of silently losing continuation lines.
         lines = []
         for line in summary.splitlines():
@@ -589,22 +595,19 @@ class PersonalMemory:
             heading = re.fullmatch(r"\s*(?:#{1,6}\s+)?\*\*(.+?)\*\*\s*", line)
             if heading:
                 label = re.split(r"[｜|]", heading[1], maxsplit=1)[0].strip()
-                matches = [
-                    p for p in people if label == p["name"] or label in p["aliases"]
-                ]
+                # A canonical name takes precedence over another profile's stale alias.
+                matches = [p for p in profiles if label == p["name"]]
                 if not matches:
-                    # A mailed task may name an absent, already-known colleague.
-                    matches = [p for p in self.people() if label == p["name"]]
+                    matches = [p for p in people if label in p["aliases"]]
                 owner = matches[0]["id"] if len(matches) == 1 else None
                 continue
             checkbox = re.fullmatch(r"\s*-\s+\[([ xX])\]\s+(.+)", line)
             if not checkbox:
                 continue
             if not owner:
-                return {
-                    "status": "needs_review",
-                    "reason": "unresolved_checklist_owner",
-                }
+                skipped += 1
+                skipped_owners.add(label)
+                continue
             text = checkbox[2].strip()
             timing = re.search(r"\s+\*\*(.+?)\*\*$", text)
             deadline = timing[1] if timing else ""
@@ -621,7 +624,7 @@ class PersonalMemory:
                 else ("active" if kind == "responsibility" else "pending")
             )
             entries.append((owner, kind, text, status, deadline, line))
-        if not entries and "**待确认事项**" not in summary:
+        if not entries and not skipped and "**待确认事项**" not in summary:
             return {"status": "needs_review", "reason": "unsupported_summary_format"}
         digest = hashlib.sha256(
             ("delivered-summary-v1\n" + summary).encode()
@@ -700,7 +703,16 @@ class PersonalMemory:
                 "INSERT INTO pm_summary_sources VALUES (?,?,?)",
                 (self.tenant, source, digest),
             )
-        return {"status": "completed", "records": count}
+        result = {"status": "completed", "records": count}
+        if skipped:
+            logger.warning(
+                "Skipped unresolved checklist owners | source=%s owners=%s tasks=%s",
+                source, sorted(skipped_owners), skipped,
+            )
+            result.update(
+                skipped_records=skipped, skipped_owners=sorted(skipped_owners)
+            )
+        return result
 
     def ingest(self, transcript, source, participants, call):  # noqa: PLR0912, PLR0915
         """Extract once, verify quotes, then atomically append conservative events."""

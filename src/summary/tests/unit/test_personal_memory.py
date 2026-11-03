@@ -71,13 +71,53 @@ def test_delivered_summary_is_the_only_task_source(memory):
     )
 
 
-def test_summary_does_not_guess_unknown_owner_or_partially_import(memory):
-    document = "**小王**\n- [ ] 整理资料\n**龙**\n- [ ] 恢复模块"
-    assert (
-        memory.ingest_summary(document, transcript(), "unknown", ROSTER)["status"]
-        == "needs_review"
+def test_summary_skips_unknown_owner_and_imports_other_sections(memory):
+    document = (
+        "**小王**\n- [ ] 整理资料\n**田磊**\n- [ ] 投资测算\n"
+        "**小王**\n- [ ] 核对结果"
     )
-    assert memory.items() == []
+    result = memory.ingest_summary(document, transcript(), "unknown", ROSTER)
+    assert result == {
+        "status": "completed", "records": 2,
+        "skipped_records": 1, "skipped_owners": ["田磊"],
+    }
+    assert {i["text"] for i in memory.items()} == {"整理资料", "核对结果"}
+    assert memory.ingest_summary(document, transcript(), "unknown", ROSTER) == {
+        "status": "already_processed"
+    }
+
+
+def test_summary_canonical_name_wins_over_wrong_alias(memory):
+    long_id = memory.add_person("Long", ["欧智峰"], account="long")
+    ou_id = memory.add_person("欧智峰", [], account="ou")
+    result = memory.ingest_summary(
+        "**欧智峰｜数据**\n- [ ] 完成数据对接\n**Long**\n- [ ] 修改界面",
+        transcript(names="Long、欧智峰"), "canonical-owner", [],
+    )
+    assert result == {"status": "completed", "records": 2}
+    assert {i["text"]: i["person"] for i in memory.items()} == {
+        "完成数据对接": ou_id, "修改界面": long_id,
+    }
+
+
+def test_summary_ambiguous_alias_skips_only_affected_tasks(memory):
+    memory.add_person("甲", ["同事"], account="a")
+    memory.add_person("乙", ["同事"], account="b")
+    result = memory.ingest_summary(
+        "**同事**\n- [ ] 不能分配\n**小王**\n- [ ] 可以分配",
+        transcript(names="小王、甲、乙"), "ambiguous-owner", ROSTER,
+    )
+    assert result["records"] == 1
+    assert result["skipped_owners"] == ["同事"]
+    assert [i["text"] for i in memory.items()] == ["可以分配"]
+
+
+def test_register_does_not_learn_another_canonical_name_as_alias(memory):
+    long_id = memory.add_person("Long", [], account="long")
+    memory.add_person("欧智峰", [], account="ou")
+    memory.register([{"identity": "long", "name": "欧智峰"}])
+    long = next(p for p in memory.people() if p["id"] == long_id)
+    assert "欧智峰" not in long["aliases"]
 
 
 def test_beibei_mail_keeps_all_four_actions(memory):
