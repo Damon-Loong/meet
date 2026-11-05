@@ -143,6 +143,8 @@ export const captureMediaEvent = async (
     | 'silent-mic-detected'
     | 'silent-mic-analyser-unavailable'
     | 'silent-mic-recovered'
+    | 'audio-recovery-microphone'
+    | 'audio-recovery-playback'
     | 'visit-room'
     | 'connection-event',
   props: Record<string, unknown>

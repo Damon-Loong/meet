@@ -12,6 +12,7 @@ import { SidePanel } from '../components/SidePanel'
 import { RecordingProvider } from '@/features/recording'
 import { ScreenShareErrorModal } from '../components/ScreenShareErrorModal'
 import { ConnectionObserver } from '../components/ConnectionObserver'
+import { AudioRecovery } from '../components/AudioRecovery'
 import { captureMediaEvent, reportError } from '@/features/analytics/telemetry'
 import { getOS } from '@/utils/os'
 import { isFireFox } from '@/utils/livekit'
@@ -152,6 +153,7 @@ export function VideoConference({ ...props }: VideoConferenceProps) {
           </>
         )}
         <RoomAudioRenderer />
+        <AudioRecovery />
         <ConnectionStateToast />
         <RecordingProvider />
         <SettingsDialogProvider />
