@@ -117,7 +117,7 @@ export function VideoConference({ ...props }: VideoConferenceProps) {
   }
 
   return (
-    <>
+    <AudioRecovery>
       <RoomMetadataSynchronizer />
       <ConnectionObserver />
       <SyncDevicePreferences />
@@ -153,13 +153,12 @@ export function VideoConference({ ...props }: VideoConferenceProps) {
           </>
         )}
         <RoomAudioRenderer />
-        <AudioRecovery />
         <ConnectionStateToast />
         <RecordingProvider />
         <SettingsDialogProvider />
         <MuteAlertDialogProvider />
         <ReactionPortals />
       </div>
-    </>
+    </AudioRecovery>
   )
 }

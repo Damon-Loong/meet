@@ -5,6 +5,7 @@ import { MobileControlBar } from './MobileControlBar'
 import { DesktopControlBar } from './DesktopControlBar'
 import { useIsMobile } from '@/utils/useIsMobile'
 import { ReactionsToolbar } from '@/features/reactions/components/toolbar/ReactionsToolbar'
+import { AudioRecoveryNotice } from '../../components/AudioRecoveryNotice'
 import { css } from '@/styled-system/css'
 
 export interface ControlBarProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -30,6 +31,7 @@ export function ControlBar({ onDeviceError }: ControlBarProps) {
         right: 0,
       })}
     >
+      <AudioRecoveryNotice />
       <ReactionsToolbar />
       <div
         id="control-bar"

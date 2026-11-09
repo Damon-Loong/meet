@@ -1,6 +1,7 @@
 import { Menu as RACMenu, MenuSection } from 'react-aria-components'
 import { Separator } from '@/primitives/Separator'
 import { FullScreenMenuItem } from './FullScreenMenuItem'
+import { AudioRecoveryMenuItems } from './AudioRecoveryMenuItems'
 import { SettingsMenuItem } from './SettingsMenuItem'
 import { FeedbackMenuItem } from './FeedbackMenuItem'
 import { EffectsMenuItem } from './EffectsMenuItem'
@@ -28,6 +29,7 @@ export const OptionsMenuItems = () => {
       </MenuSection>
       <Separator />
       <MenuSection>
+        <AudioRecoveryMenuItems />
         <SupportMenuItem />
         <DocumentationMenuItem />
         <FeedbackMenuItem />

@@ -19,6 +19,7 @@ import { ParticipantsToggle } from '../../components/controls/ParticipantsToggle
 import { useSidePanel } from '../../hooks/useSidePanel'
 import { LinkButton } from '@/primitives'
 import { ResponsiveMenu } from './ResponsiveMenu'
+import { AudioRecoveryButtons } from '../../components/controls/Options/AudioRecoveryButtons'
 import { ToolsToggle } from '../../components/controls/ToolsToggle'
 import { CameraSwitchButton } from '../../components/controls/CameraSwitchButton'
 import { useConfig } from '@/api/useConfig'
@@ -238,6 +239,7 @@ export function MobileControlBar({
             >
               <RiSettings3Line size={20} />
             </Button>
+            <AudioRecoveryButtons onClose={closeMenu} />
             <CameraSwitchButton onPress={closeMenu} />
           </div>
         </div>
